@@ -25,6 +25,7 @@ const COMMANDS = [
   "Password manager",
   "Permission audit",
   "Toggle AI panel",
+  "Toggle favorite",
   "Suggest stale tabs",
   "Group tabs by topic",
   "Summarize this page (AI)"

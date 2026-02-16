@@ -23,11 +23,12 @@ type ShortcutAction =
   | "group_tabs"
   | "toggle_task_manager"
   | "refresh_page"
+  | "toggle_favorite"
   | "next_tab"
   | "prev_tab";
 
 function mapInputToShortcut(input: Electron.Input): ShortcutAction | null {
-  if (input.type !== "keyDown") {
+  if (input.type !== "keyDown" && input.type !== "rawKeyDown") {
     return null;
   }
 
@@ -77,6 +78,9 @@ function mapInputToShortcut(input: Electron.Input): ShortcutAction | null {
   }
   if (key === "r" || key === "f5") {
     return "refresh_page";
+  }
+  if (key === "d") {
+    return "toggle_favorite";
   }
 
   return null;

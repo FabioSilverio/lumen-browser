@@ -331,11 +331,11 @@ export function Sidebar({
                       <div className="space-actions">
                         <button className="space-add-tab" onClick={() => onNewTab(space.id)}>
                           <Plus size={12} strokeWidth={2} />
-                          <span>New tab in {space.name}</span>
+                          <span>New tab</span>
                         </button>
-                        <button className="space-add-tab" onClick={() => onAddFolder(space.id)}>
+                        <button className="space-add-tab space-add-folder" onClick={() => onAddFolder(space.id)}>
                           <FolderPlus size={12} strokeWidth={1.9} />
-                          <span>New folder</span>
+                          <span>Folder</span>
                         </button>
                       </div>
                     )}

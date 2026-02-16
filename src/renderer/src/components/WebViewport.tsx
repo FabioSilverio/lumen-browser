@@ -1,9 +1,18 @@
 import { FormEvent, MutableRefObject, useEffect, useState } from "react";
-import { BrowserTab } from "../types";
+import { BrowserTab, FavoritePage } from "../types";
+import { NewTabPage } from "./NewTabPage";
+
+interface TopSite {
+  url: string;
+  title: string;
+  visits: number;
+}
 
 interface WebViewportProps {
   tab: BrowserTab | undefined;
   profileId: string;
+  favorites: FavoritePage[];
+  topSites: TopSite[];
   webviewRef: MutableRefObject<Electron.WebviewTag | null>;
   onTitleChange: (title: string) => void;
   onUrlChange: (url: string) => void;
@@ -12,11 +21,14 @@ interface WebViewportProps {
   onRestoreTab: () => void;
   onSendAIMessage: (tabId: string, text: string) => Promise<void>;
   onStartBrowsing: (url: string) => void;
+  onAskAIFromNewTab: (prompt: string) => void;
 }
 
 export function WebViewport({
   tab,
   profileId,
+  favorites,
+  topSites,
   webviewRef,
   onTitleChange,
   onUrlChange,
@@ -24,7 +36,8 @@ export function WebViewport({
   onNavigationStateChange,
   onRestoreTab,
   onSendAIMessage,
-  onStartBrowsing
+  onStartBrowsing,
+  onAskAIFromNewTab
 }: WebViewportProps) {
   const [aiInput, setAiInput] = useState("");
 
@@ -33,7 +46,7 @@ export function WebViewport({
   }, [tab?.id]);
 
   useEffect(() => {
-    if (!tab || tab.suspended || tab.kind === "ai") {
+    if (!tab || tab.suspended || tab.kind !== "web") {
       return;
     }
 
@@ -201,6 +214,17 @@ export function WebViewport({
           </div>
         </div>
       </section>
+    );
+  }
+
+  if (tab.kind === "newtab") {
+    return (
+      <NewTabPage
+        favorites={favorites}
+        topSites={topSites}
+        onNavigate={onStartBrowsing}
+        onAskAI={onAskAIFromNewTab}
+      />
     );
   }
 

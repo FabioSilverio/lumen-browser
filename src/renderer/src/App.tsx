@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { AIPanel } from "./components/AIPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { ExtensionsModal } from "./components/ExtensionsModal";
@@ -9,7 +10,7 @@ import { Sidebar } from "./components/Sidebar";
 import { TaskManagerModal } from "./components/TaskManagerModal";
 import { TitleBar } from "./components/TitleBar";
 import { WebViewport } from "./components/WebViewport";
-import { AIChatFeature, AIProvider, BrowserProfile, BrowserTab, TabFolder, TabSpace } from "./types";
+import { AIChatFeature, AIProvider, BrowserProfile, BrowserTab, FavoritePage, TabFolder, TabSpace } from "./types";
 
 const SUSPEND_AFTER_MS = 5 * 60 * 1000;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
@@ -24,6 +25,7 @@ interface ProfileSession {
   tabs: BrowserTab[];
   spaces: TabSpace[];
   folders: TabFolder[];
+  favorites: FavoritePage[];
   activeTabId: string;
   urlHistory: string[];
 }
@@ -60,6 +62,12 @@ interface PendingAI {
   reject: (error: Error) => void;
 }
 
+interface TopSite {
+  url: string;
+  title: string;
+  visits: number;
+}
+
 function simpleHash(input: string): string {
   let hash = 0;
   for (let i = 0; i < input.length; i += 1) {
@@ -77,12 +85,26 @@ function createSpace(name: string, color = SPACE_COLORS[0] ?? "#0a84ff"): TabSpa
   };
 }
 
-function createTab(spaceId: string, url = "https://duckduckgo.com", title = "New Tab"): BrowserTab {
+function createTab(spaceId: string, url: string, title = "Loading..."): BrowserTab {
   return {
     id: crypto.randomUUID(),
     title,
     url,
     kind: "web",
+    pinned: false,
+    suspended: false,
+    lastActiveAt: Date.now(),
+    createdAt: Date.now(),
+    spaceId
+  };
+}
+
+function createNewTab(spaceId: string): BrowserTab {
+  return {
+    id: crypto.randomUUID(),
+    title: "New Tab",
+    url: "lumen://new-tab",
+    kind: "newtab",
     pinned: false,
     suspended: false,
     lastActiveAt: Date.now(),
@@ -155,6 +177,7 @@ function defaultSession(): ProfileSession {
     tabs: [welcomeTab],
     spaces: [baseSpace],
     folders: [],
+    favorites: [],
     activeTabId: welcomeTab.id,
     urlHistory: []
   };
@@ -179,6 +202,64 @@ function normalizeAddress(input: string): string {
   }
 
   return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
+}
+
+function canonicalUrl(raw: string): string {
+  try {
+    const parsed = new URL(raw);
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return raw.trim().replace(/\/$/, "");
+  }
+}
+
+function deriveTopSites(history: string[], tabs: BrowserTab[]): TopSite[] {
+  const counts = new Map<string, { url: string; visits: number }>();
+  history.forEach((entry) => {
+    try {
+      const parsed = new URL(entry);
+      if (!/^https?:$/i.test(parsed.protocol)) {
+        return;
+      }
+      const key = parsed.hostname.replace(/^www\./, "");
+      const current = counts.get(key);
+      if (current) {
+        current.visits += 1;
+      } else {
+        counts.set(key, {
+          url: `${parsed.protocol}//${parsed.hostname}`,
+          visits: 1
+        });
+      }
+    } catch {
+      // Ignore invalid URLs.
+    }
+  });
+
+  const titles = new Map<string, string>();
+  tabs.forEach((tab) => {
+    if (tab.kind !== "web") {
+      return;
+    }
+    try {
+      const key = new URL(tab.url).hostname.replace(/^www\./, "");
+      if (!titles.has(key) && tab.title && tab.title !== "Loading...") {
+        titles.set(key, tab.title);
+      }
+    } catch {
+      // Ignore invalid URL titles.
+    }
+  });
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1].visits - a[1].visits)
+    .slice(0, 10)
+    .map(([key, value]) => ({
+      url: value.url,
+      title: titles.get(key) ?? key,
+      visits: value.visits
+    }));
 }
 
 function parseAddressAI(
@@ -324,13 +405,21 @@ function normalizeSession(input: Partial<ProfileSession> | null | undefined): Pr
   const folders = input.folders?.filter((folder) => spaces.some((space) => space.id === folder.spaceId)) ?? [];
   const defaultSpaceId = spaces[0]?.id ?? fallback.spaces[0]!.id;
   const tabs = input.tabs?.length
-    ? input.tabs.map((tab) => ({
-      ...tab,
-      kind: tab.kind ?? "web",
-      spaceId: tab.spaceId || defaultSpaceId,
-      folderId: tab.folderId && folders.some((folder) => folder.id === tab.folderId) ? tab.folderId : undefined
-    }))
+    ? input.tabs.map((tab) => {
+      const normalizedKind: BrowserTab["kind"] =
+        tab.kind === "ai" || tab.kind === "welcome" || tab.kind === "newtab" || tab.kind === "web"
+          ? tab.kind
+          : "web";
+
+      return {
+        ...tab,
+        kind: normalizedKind,
+        spaceId: tab.spaceId || defaultSpaceId,
+        folderId: tab.folderId && folders.some((folder) => folder.id === tab.folderId) ? tab.folderId : undefined
+      };
+    })
     : fallback.tabs;
+  const favorites = input.favorites?.filter((favorite) => typeof favorite.url === "string" && favorite.url.trim()) ?? [];
   const activeTabId = tabs.some((tab) => tab.id === input.activeTabId)
     ? input.activeTabId ?? tabs[0]!.id
     : tabs[0]!.id;
@@ -339,6 +428,7 @@ function normalizeSession(input: Partial<ProfileSession> | null | undefined): Pr
     tabs,
     spaces,
     folders,
+    favorites,
     activeTabId,
     urlHistory: input.urlHistory ?? []
   };
@@ -483,6 +573,7 @@ export function App() {
   const [tabs, setTabs] = useState<BrowserTab[]>(bootstrap.session.tabs);
   const [spaces, setSpaces] = useState<TabSpace[]>(bootstrap.session.spaces);
   const [folders, setFolders] = useState<TabFolder[]>(bootstrap.session.folders);
+  const [favorites, setFavorites] = useState<FavoritePage[]>(bootstrap.session.favorites);
   const [activeTabId, setActiveTabId] = useState<string>(bootstrap.session.activeTabId);
   const [urlHistory, setUrlHistory] = useState<string[]>(bootstrap.session.urlHistory);
   const [urlValue, setUrlValue] = useState("");
@@ -508,6 +599,7 @@ export function App() {
     feature?: AIChatFeature;
   } | null>(null);
   const [pageIntel, setPageIntel] = useState<Record<string, PageIntel>>({});
+  const [dismissedPageIntel, setDismissedPageIntel] = useState<Record<string, true>>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [memoryPressureRatio, setMemoryPressureRatio] = useState(0);
   const [profileGateOpen, setProfileGateOpen] = useState(true);
@@ -533,13 +625,17 @@ export function App() {
 
     const fromHistory = urlHistory
       .filter((entry) => entry.toLowerCase().includes(query))
-      .slice(0, 5);
+      .slice(0, 16);
     const fromTabs = tabs
       .map((tab) => tab.url)
       .filter((url) => url.toLowerCase().includes(query))
       .slice(0, 5);
 
-    return [...new Set([...fromHistory, ...fromTabs])].slice(0, 8);
+    const combined = [...new Set([...fromHistory, ...fromTabs])].slice(0, 8);
+    if (query.includes(".") && !combined.some((entry) => canonicalUrl(entry).includes(query))) {
+      combined.unshift(`https://${query}`);
+    }
+    return combined.slice(0, 8);
   }, [urlValue, urlHistory, tabs]);
 
   const addressSuggestions = useMemo(() => {
@@ -604,6 +700,14 @@ export function App() {
     }
 
     setPageIntelLoading(true);
+    setDismissedPageIntel((prev) => {
+      if (!activeTab) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[activeTab.id];
+      return next;
+    });
     addToast("Analyzing page...");
 
     const context = await extractPageContext();
@@ -675,7 +779,7 @@ export function App() {
 
   useEffect(() => {
     if (activeTab) {
-      if (activeTab.kind === "ai" || activeTab.kind === "welcome") {
+      if (activeTab.kind === "ai" || activeTab.kind === "welcome" || activeTab.kind === "newtab") {
         setUrlValue("");
       } else {
         setUrlValue(activeTab.url);
@@ -729,11 +833,12 @@ export function App() {
       tabs,
       spaces,
       folders,
+      favorites,
       activeTabId,
       urlHistory
     };
     window.localStorage.setItem(profileSessionKey(activeProfileId), JSON.stringify(session));
-  }, [tabs, spaces, folders, activeTabId, urlHistory, activeProfileId]);
+  }, [tabs, spaces, folders, favorites, activeTabId, urlHistory, activeProfileId]);
 
   useEffect(() => {
     setTabVisitHistory((prev) => {
@@ -959,6 +1064,44 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey && event.key === "ArrowLeft") {
+        const webview = webviewRef.current;
+        if (!webview) {
+          return;
+        }
+        event.preventDefault();
+        if (webview.canGoBack()) {
+          webview.goBack();
+        }
+        return;
+      }
+
+      if (event.altKey && event.key === "ArrowRight") {
+        const webview = webviewRef.current;
+        if (!webview) {
+          return;
+        }
+        event.preventDefault();
+        if (webview.canGoForward()) {
+          webview.goForward();
+        }
+        return;
+      }
+
+      if (!event.ctrlKey && event.key !== "F5") {
+        return;
+      }
+
+      if (event.key === "F5" || event.key.toLowerCase() === "r") {
+        const webview = webviewRef.current;
+        if (!webview) {
+          return;
+        }
+        event.preventDefault();
+        webview.reload();
+        return;
+      }
+
       if (!event.ctrlKey) {
         return;
       }
@@ -1027,6 +1170,31 @@ export function App() {
         return;
       }
 
+      if (lower === "d") {
+        event.preventDefault();
+        if (activeTab && activeTab.kind === "web") {
+          const targetUrl = canonicalUrl(activeTab.url);
+          setFavorites((prev) => {
+            const exists = prev.some((favorite) => canonicalUrl(favorite.url) === targetUrl);
+            if (exists) {
+              addToast("Removed from favorites.");
+              return prev.filter((favorite) => canonicalUrl(favorite.url) !== targetUrl);
+            }
+            addToast("Added to favorites.");
+            return [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                title: activeTab.title && activeTab.title !== "Loading..." ? activeTab.title : targetUrl,
+                url: activeTab.url,
+                createdAt: Date.now()
+              }
+            ];
+          });
+        }
+        return;
+      }
+
       if (event.key === "Tab") {
         event.preventDefault();
         const nextId = rotateTabs(tabs, activeTabId, event.shiftKey ? -1 : 1);
@@ -1052,7 +1220,7 @@ export function App() {
       return;
     }
 
-    const currentSession: ProfileSession = { tabs, spaces, folders, activeTabId, urlHistory };
+    const currentSession: ProfileSession = { tabs, spaces, folders, favorites, activeTabId, urlHistory };
     window.localStorage.setItem(profileSessionKey(activeProfileId), JSON.stringify(currentSession));
 
     const nextSession = readProfileSession(profileId);
@@ -1060,6 +1228,7 @@ export function App() {
     setTabs(nextSession.tabs);
     setSpaces(nextSession.spaces);
     setFolders(nextSession.folders);
+    setFavorites(nextSession.favorites);
     setActiveTabId(nextSession.activeTabId);
     setUrlHistory(nextSession.urlHistory);
     setTabVisitHistory(buildInitialTabVisitHistory(nextSession.tabs));
@@ -1067,6 +1236,7 @@ export function App() {
     setProviderSuggestions([]);
     setCanGoBack(false);
     setCanGoForward(false);
+    setDismissedPageIntel({});
   };
 
   const handleAddProfile = (name?: string) => {
@@ -1080,11 +1250,11 @@ export function App() {
 
   function handleNewTab(spaceId?: string, url?: string, title?: string) {
     const fallbackSpace = spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
-    const tab = createTab(spaceId ?? fallbackSpace, url, title ?? "New Tab");
+    const tab = url ? createTab(spaceId ?? fallbackSpace, normalizeAddress(url), title ?? "Loading...") : createNewTab(spaceId ?? fallbackSpace);
     setTabs((prev) => [...prev, tab]);
     setTabVisitHistory((prev) => ({
       ...prev,
-      [tab.id]: tab.url ? [tab.url] : []
+      [tab.id]: tab.kind === "web" && tab.url ? [tab.url] : []
     }));
     setActiveTabId(tab.id);
   }
@@ -1094,12 +1264,12 @@ export function App() {
       const next = prev.filter((tab) => tab.id !== id);
       if (next.length === 0) {
         const fallbackSpace = spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
-        const fallback = createTab(fallbackSpace);
+        const fallback = createNewTab(fallbackSpace);
         setActiveTabId(fallback.id);
         setTabVisitHistory((history) => {
           const copy = { ...history };
           delete copy[id];
-          copy[fallback.id] = [fallback.url];
+          copy[fallback.id] = [];
           return copy;
         });
         return [fallback];
@@ -1145,7 +1315,7 @@ export function App() {
     }
 
     updateTab(activeTab.id, (tab) => {
-      if (tab.kind === "ai" || tab.kind === "welcome") {
+      if (tab.kind === "ai" || tab.kind === "welcome" || tab.kind === "newtab") {
         return {
           ...tab,
           kind: "web",
@@ -1170,7 +1340,7 @@ export function App() {
       };
     });
 
-    setUrlHistory((prev) => [nextUrl, ...prev.filter((entry) => entry !== nextUrl)].slice(0, 120));
+    setUrlHistory((prev) => [nextUrl, ...prev].slice(0, 400));
     setUrlFocused(false);
     setUrlValue("");
     setProviderSuggestions([]);
@@ -1192,7 +1362,7 @@ export function App() {
         [tabId]: next
       };
     });
-    setUrlHistory((prev) => [url, ...prev.filter((entry) => entry !== url)].slice(0, 120));
+    setUrlHistory((prev) => [url, ...prev].slice(0, 400));
   }
 
   async function runAddressAIQuery(query: {
@@ -1278,6 +1448,32 @@ export function App() {
       })
     );
   };
+
+  const handleToggleFavorite = useCallback(() => {
+    if (!activeTab || activeTab.kind !== "web") {
+      return;
+    }
+
+    const targetUrl = canonicalUrl(activeTab.url);
+    setFavorites((prev) => {
+      const exists = prev.some((favorite) => canonicalUrl(favorite.url) === targetUrl);
+      if (exists) {
+        addToast("Removed from favorites.");
+        return prev.filter((favorite) => canonicalUrl(favorite.url) !== targetUrl);
+      }
+
+      addToast("Added to favorites.");
+      return [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          title: activeTab.title && activeTab.title !== "Loading..." ? activeTab.title : targetUrl,
+          url: activeTab.url,
+          createdAt: Date.now()
+        }
+      ];
+    });
+  }, [activeTab, addToast]);
 
   async function handleSendAITabMessage(tabId: string, text: string): Promise<void> {
     const trimmed = text.trim();
@@ -1567,6 +1763,9 @@ export function App() {
       case "Summarize this page (AI)":
         void runPageIntelligence();
         break;
+      case "Toggle favorite":
+        handleToggleFavorite();
+        break;
       default:
         break;
     }
@@ -1590,8 +1789,15 @@ export function App() {
 
   const sidebarExpanded = sidebarPinned || sidebarPeek;
   const activeSpaceId = activeTab?.spaceId ?? spaces[0]?.id;
+  const topSites = useMemo(() => deriveTopSites(urlHistory, tabs), [urlHistory, tabs]);
   const currentIntel = activeTab ? pageIntel[activeTab.id] : undefined;
+  const currentIntelVisible = Boolean(activeTab && currentIntel && !dismissedPageIntel[activeTab.id]);
   const canRefresh = activeTab?.kind === "web" && !activeTab.suspended;
+  const canFavorite = activeTab?.kind === "web";
+  const isFavorite = Boolean(
+    activeTab?.kind === "web" &&
+    favorites.some((favorite) => canonicalUrl(favorite.url) === canonicalUrl(activeTab.url))
+  );
   const storeInstallUrl = activeTab?.kind === "web" ? parseChromeWebStoreUrl(activeTab.url) : null;
   const backHistoryItems = useMemo(() => {
     if (!activeTab || activeTab.kind !== "web") {
@@ -1703,11 +1909,14 @@ export function App() {
         case "refresh_page":
           handleRefresh();
           break;
+        case "toggle_favorite":
+          handleToggleFavorite();
+          break;
         default:
           break;
       }
     });
-  }, [activeTabId, tabs]);
+  }, [activeTabId, tabs, handleToggleFavorite]);
 
   return (
     <div className="app-root">
@@ -1727,8 +1936,11 @@ export function App() {
         onGoForward={handleGoForward}
         onRefresh={handleRefresh}
         canInstallStoreExtension={Boolean(storeInstallUrl)}
+        canFavorite={Boolean(canFavorite)}
+        isFavorite={isFavorite}
         backHistoryItems={backHistoryItems}
         onInstallStoreExtension={handleInstallFromStore}
+        onToggleFavorite={handleToggleFavorite}
         onNavigateBackHistory={handleNavigateBackHistory}
         urlValue={urlValue}
         activeUrl={activeTab?.kind === "web" ? activeTab.url : ""}
@@ -1795,11 +2007,20 @@ export function App() {
         />
 
         <main className="content-area">
-          {currentIntel && (
+          {currentIntelVisible && activeTab && currentIntel && (
             <section className="page-intel-banner">
               <div className="page-intel-top">
                 <span>Summary</span>
-                <span>{currentIntel.readingTimeMin} min read</span>
+                <div className="page-intel-meta">
+                  <span>{currentIntel.readingTimeMin} min read</span>
+                  <button
+                    className="icon-button page-intel-close"
+                    onClick={() => setDismissedPageIntel((prev) => ({ ...prev, [activeTab.id]: true }))}
+                    title="Close summary"
+                  >
+                    <X size={12} strokeWidth={2} />
+                  </button>
+                </div>
               </div>
               <p>{currentIntel.summary}</p>
               <div className="topic-tags">
@@ -1813,6 +2034,8 @@ export function App() {
           <WebViewport
             tab={activeTab}
             profileId={activeProfileId}
+            favorites={favorites}
+            topSites={topSites}
             webviewRef={webviewRef}
             onRestoreTab={() => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, suspended: false }))}
             onTitleChange={(title) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, title }))}
@@ -1835,6 +2058,12 @@ export function App() {
               }
               setUrlValue(seedUrl);
               navigateToAddress(seedUrl);
+            }}
+            onAskAIFromNewTab={(prompt) => {
+              void runAddressAIQuery({
+                text: prompt,
+                label: "AI"
+              });
             }}
           />
 

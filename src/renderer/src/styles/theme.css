@@ -1,7 +1,7 @@
 :root {
-  --font-primary: "Helvetica Neue", "Segoe UI Variable Text", "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-primary: "Soehne", "Inter", "Helvetica Neue", "Segoe UI Variable Text", "Segoe UI", Helvetica, Arial, sans-serif;
   --font-ui: 12px;
-  --font-body: 15px;
+  --font-body: 16px;
   --font-title: 20px;
   --font-hero: 28px;
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Command, Download, Minus, PanelLeft, RotateCw, Square, SquareStack, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Command, Download, PanelLeft, RotateCw, Star } from "lucide-react";
 import { UrlBar } from "./UrlBar";
 import { BrowserProfile } from "../types";
 
@@ -16,11 +16,14 @@ interface TitleBarProps {
   canGoForward: boolean;
   canRefresh: boolean;
   canInstallStoreExtension: boolean;
+  canFavorite: boolean;
+  isFavorite: boolean;
   backHistoryItems: string[];
   onGoBack: () => void;
   onGoForward: () => void;
   onRefresh: () => void;
   onInstallStoreExtension: () => void;
+  onToggleFavorite: () => void;
   onNavigateBackHistory: (url: string) => void;
   urlValue: string;
   activeUrl: string;
@@ -47,11 +50,14 @@ export function TitleBar({
   canGoForward,
   canRefresh,
   canInstallStoreExtension,
+  canFavorite,
+  isFavorite,
   backHistoryItems,
   onGoBack,
   onGoForward,
   onRefresh,
   onInstallStoreExtension,
+  onToggleFavorite,
   onNavigateBackHistory,
   urlValue,
   activeUrl,
@@ -104,18 +110,6 @@ export function TitleBar({
           <PanelLeft size={16} strokeWidth={1.8} />
         </button>
         <span className="wordmark">Lumen</span>
-        <div className="profile-picker no-drag">
-          <select value={activeProfileId} onChange={(event) => onSwitchProfile(event.target.value)} title="Profile">
-            {profiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profile.name}
-              </option>
-            ))}
-          </select>
-          <button className="tab-mini" onClick={onAddProfile} title="New profile">
-            +
-          </button>
-        </div>
 
         <div className="nav-controls no-drag" ref={backHistoryRef}>
           <button
@@ -150,6 +144,14 @@ export function TitleBar({
           >
             <Download size={13} strokeWidth={1.9} />
           </button>
+          <button
+            className={`icon-button ${isFavorite ? "active" : ""}`}
+            onClick={onToggleFavorite}
+            disabled={!canFavorite}
+            title={isFavorite ? "Remove favorite" : "Add favorite"}
+          >
+            <Star size={13} strokeWidth={1.9} fill={isFavorite ? "currentColor" : "none"} />
+          </button>
 
           {showBackHistory && backMenuItems.length ? (
             <div className="back-history-menu">
@@ -168,6 +170,19 @@ export function TitleBar({
               ))}
             </div>
           ) : null}
+        </div>
+
+        <div className="profile-picker no-drag">
+          <select value={activeProfileId} onChange={(event) => onSwitchProfile(event.target.value)} title="Profile">
+            {profiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+          <button className="tab-mini" onClick={onAddProfile} title="New profile">
+            +
+          </button>
         </div>
       </div>
 
@@ -193,7 +208,7 @@ export function TitleBar({
           <Command size={15} strokeWidth={1.8} />
         </button>
         <button className="window-button" onClick={() => void window.lumen.window.minimize()} title="Minimize">
-          <Minus size={14} strokeWidth={1.8} />
+          <span className="window-glyph minimize" />
         </button>
         <button
           className="window-button"
@@ -204,10 +219,10 @@ export function TitleBar({
           }
           title={maximized ? "Restore" : "Maximize"}
         >
-          {maximized ? <SquareStack size={13} strokeWidth={1.8} /> : <Square size={12} strokeWidth={1.8} />}
+          {maximized ? <span className="window-glyph restore" /> : <span className="window-glyph maximize" />}
         </button>
         <button className="window-button close" onClick={() => void window.lumen.window.close()} title="Close">
-          <X size={14} strokeWidth={1.8} />
+          <span className="window-glyph close" />
         </button>
       </div>
     </header>

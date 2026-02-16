@@ -26,7 +26,7 @@ export interface BrowserTab {
   id: string;
   title: string;
   url: string;
-  kind?: "web" | "ai" | "welcome";
+  kind?: "web" | "ai" | "welcome" | "newtab";
   favicon?: string;
   pinned: boolean;
   suspended: boolean;
@@ -43,6 +43,13 @@ export interface BrowserTab {
     role: "user" | "assistant";
     content: string;
   }>;
+}
+
+export interface FavoritePage {
+  id: string;
+  title: string;
+  url: string;
+  createdAt: number;
 }
 
 export interface TabSpace {
@@ -149,6 +156,7 @@ declare global {
             | "group_tabs"
             | "toggle_task_manager"
             | "refresh_page"
+            | "toggle_favorite"
             | "next_tab"
             | "prev_tab";
         }) => void) => () => void;

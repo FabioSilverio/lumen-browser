@@ -1,6 +1,6 @@
 import { app, dialog, ipcMain, session } from "electron";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { Dirent, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import AdmZip from "adm-zip";
 import { ExtensionStore } from "../services/extension-store";
 
@@ -76,11 +76,75 @@ function unpackZipToExtensionFolder(zipBuffer: Buffer, extensionIdHint: string):
   return folder;
 }
 
+function hasManifest(path: string): boolean {
+  return existsSync(join(path, "manifest.json"));
+}
+
+function findManifestRoot(root: string): string {
+  if (hasManifest(root)) {
+    return root;
+  }
+
+  const queue: Array<{ path: string; depth: number }> = [{ path: root, depth: 0 }];
+  const maxDepth = 4;
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || current.depth >= maxDepth) {
+      continue;
+    }
+
+    let entries: Dirent[] = [];
+    try {
+      entries = readdirSync(current.path, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      if (entry.name === "__MACOSX" || entry.name.startsWith(".")) {
+        continue;
+      }
+
+      const nextPath = join(current.path, entry.name);
+      if (hasManifest(nextPath)) {
+        return nextPath;
+      }
+      queue.push({ path: nextPath, depth: current.depth + 1 });
+    }
+  }
+
+  throw new Error("No manifest.json found in extension package");
+}
+
+function removeExtensionPath(path: string): void {
+  const cacheRoot = extensionRoot();
+  if (!path.toLowerCase().startsWith(cacheRoot.toLowerCase())) {
+    return;
+  }
+
+  let current = path;
+  let parent = dirname(current);
+
+  while (parent && parent !== current) {
+    if (parent === cacheRoot) {
+      rmSync(current, { recursive: true, force: true });
+      return;
+    }
+    current = parent;
+    parent = dirname(current);
+  }
+}
+
 async function downloadWebStoreCrx(extensionId: string): Promise<Buffer> {
   const endpoints = [
     `https://clients2.google.com/service/update2/crx?response=redirect&prodversion=132.0.6834.110&acceptformat=crx3,crx2&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`,
     `https://clients2.google.com/service/update2/crx?response=redirect&prodversion=131.0.6778.86&acceptformat=crx3,crx2&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`,
-    `https://clients2.google.com/service/update2/crx?response=redirect&os=win&arch=x64&os_arch=x86_64&prod=chromium&prodchannel=stable&prodversion=132.0.6834.110&acceptformat=crx3,crx2&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`
+    `https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133.0.6943.142&acceptformat=crx3,crx2&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`,
+    `https://clients2.google.com/service/update2/crx?response=redirect&os=win&arch=x64&os_arch=x86_64&prod=chromium&prodchannel=stable&prodversion=132.0.6834.110&acceptformat=crx3,crx2&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`,
+    `https://clients2.google.com/service/update2/crx?response=redirect&prod=chromecrx&prodchannel=unknown&prodversion=133.0.6943.142&acceptformat=crx3,crx2&x=id%3D${extensionId}%26uc`
   ];
 
   let lastError = "Unknown failure";
@@ -92,7 +156,8 @@ async function downloadWebStoreCrx(extensionId: string): Promise<Buffer> {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
           Accept: "application/x-chrome-extension,application/octet-stream,*/*"
         },
-        redirect: "follow"
+        redirect: "follow",
+        signal: AbortSignal.timeout(45_000)
       });
 
       if (!response.ok) {
@@ -141,9 +206,13 @@ function toDTO(profileId: string): ExtensionDTO[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function ensureLoaded(profileId: string, paths: string[]): Promise<number> {
+async function ensureLoaded(profileId: string, paths: string[]): Promise<{
+  loaded: number;
+  failures: Array<{ path: string; reason: string }>;
+}> {
   const ses = session.fromPartition(profilePartition(profileId));
   let loaded = 0;
+  const failures: Array<{ path: string; reason: string }> = [];
 
   for (const unpackedPath of paths) {
     try {
@@ -156,12 +225,15 @@ async function ensureLoaded(profileId: string, paths: string[]): Promise<number>
         allowFileAccess: true
       });
       loaded += 1;
-    } catch {
-      // Skip invalid or already loaded extensions and continue loading others.
+    } catch (error) {
+      failures.push({
+        path: unpackedPath,
+        reason: error instanceof Error ? error.message : "Unknown load failure"
+      });
     }
   }
 
-  return loaded;
+  return { loaded, failures };
 }
 
 function profilePaths(store: ExtensionStore, profileId: string): string[] {
@@ -179,7 +251,7 @@ export function registerExtensionsIpc(): void {
   const store = new ExtensionStore();
 
   ipcMain.handle("extensions:activate-profile", async (_, profileId: string) => {
-    const loaded = await ensureLoaded(profileId, profilePaths(store, profileId));
+    const { loaded } = await ensureLoaded(profileId, profilePaths(store, profileId));
     return { loaded };
   });
 
@@ -198,14 +270,18 @@ export function registerExtensionsIpc(): void {
       return toDTO(profileId);
     }
 
-    const unpackedPath = picked.filePaths[0];
-    if (!unpackedPath) {
+    const selectedPath = picked.filePaths[0];
+    if (!selectedPath) {
       return toDTO(profileId);
     }
-    const nextPaths = [...new Set([...profilePaths(store, profileId), unpackedPath])];
+    const loadPath = findManifestRoot(selectedPath);
+    const nextPaths = [...new Set([...profilePaths(store, profileId), loadPath])];
     saveProfilePaths(store, profileId, nextPaths);
 
-    await ensureLoaded(profileId, [unpackedPath]);
+    const result = await ensureLoaded(profileId, [loadPath]);
+    if (!result.loaded) {
+      throw new Error(result.failures[0]?.reason ?? "Could not load extension.");
+    }
     return toDTO(profileId);
   });
 
@@ -228,12 +304,13 @@ export function registerExtensionsIpc(): void {
     const isZipPayload = source[0] === 0x50 && source[1] === 0x4b;
     const zipBuffer = path.toLowerCase().endsWith(".zip") || isZipPayload ? source : crxToZipBuffer(source);
     const unpackedPath = unpackZipToExtensionFolder(zipBuffer, "imported");
-    const nextPaths = [...new Set([...profilePaths(store, profileId), unpackedPath])];
+    const loadPath = findManifestRoot(unpackedPath);
+    const nextPaths = [...new Set([...profilePaths(store, profileId), loadPath])];
     saveProfilePaths(store, profileId, nextPaths);
-    const loaded = await ensureLoaded(profileId, [unpackedPath]);
-    if (loaded < 1) {
-      rmSync(unpackedPath, { recursive: true, force: true });
-      throw new Error("Imported extension could not be loaded. Manifest may be invalid for this browser build.");
+    const result = await ensureLoaded(profileId, [loadPath]);
+    if (result.loaded < 1) {
+      removeExtensionPath(unpackedPath);
+      throw new Error(result.failures[0]?.reason ?? "Imported extension could not be loaded.");
     }
 
     return toDTO(profileId);
@@ -251,18 +328,19 @@ export function registerExtensionsIpc(): void {
     const isZipPayload = crxBuffer[0] === 0x50 && crxBuffer[1] === 0x4b;
     const zipBuffer = isZipPayload ? crxBuffer : crxToZipBuffer(crxBuffer);
     const unpackedPath = unpackZipToExtensionFolder(zipBuffer, extensionId);
+    const loadPath = findManifestRoot(unpackedPath);
 
-    const nextPaths = [...new Set([...profilePaths(store, payload.profileId), unpackedPath])];
+    const nextPaths = [...new Set([...profilePaths(store, payload.profileId), loadPath])];
     saveProfilePaths(store, payload.profileId, nextPaths);
 
     try {
-      const loaded = await ensureLoaded(payload.profileId, [unpackedPath]);
-      if (loaded < 1) {
-        throw new Error("Extension package extracted but failed to load.");
+      const result = await ensureLoaded(payload.profileId, [loadPath]);
+      if (result.loaded < 1) {
+        throw new Error(result.failures[0]?.reason ?? "Extension package extracted but failed to load.");
       }
-    } catch {
-      rmSync(unpackedPath, { recursive: true, force: true });
-      throw new Error("Extension downloaded but failed to load. It may require unsupported Chrome APIs.");
+    } catch (error) {
+      removeExtensionPath(unpackedPath);
+      throw new Error(error instanceof Error ? error.message : "Extension downloaded but failed to load.");
     }
 
     return toDTO(payload.profileId);
@@ -284,7 +362,7 @@ export function registerExtensionsIpc(): void {
     if (removePath) {
       const nextPaths = profilePaths(store, payload.profileId).filter((entry) => entry !== removePath);
       saveProfilePaths(store, payload.profileId, nextPaths);
-      rmSync(removePath, { recursive: true, force: true });
+      removeExtensionPath(removePath);
     }
 
     return toDTO(payload.profileId);
