@@ -26,7 +26,7 @@ export interface BrowserTab {
   id: string;
   title: string;
   url: string;
-  kind?: "web" | "ai";
+  kind?: "web" | "ai" | "welcome";
   favicon?: string;
   pinned: boolean;
   suspended: boolean;
@@ -45,6 +45,12 @@ export interface TabSpace {
   name: string;
   color: string;
   collapsed: boolean;
+}
+
+export interface BrowserProfile {
+  id: string;
+  name: string;
+  createdAt: number;
 }
 
 export interface LumenMetrics {
@@ -128,6 +134,7 @@ declare global {
         ) => () => void;
       };
       browser: {
+        getAddressSuggestions: (query: string) => Promise<string[]>;
         onNewTabRequested: (listener: (payload: { url: string }) => void) => () => void;
       };
     };

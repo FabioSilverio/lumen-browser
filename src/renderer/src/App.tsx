@@ -5,23 +5,37 @@ import { Sidebar } from "./components/Sidebar";
 import { TaskManagerModal } from "./components/TaskManagerModal";
 import { TitleBar } from "./components/TitleBar";
 import { WebViewport } from "./components/WebViewport";
-import { AIChatFeature, AIProvider, BrowserTab, TabSpace } from "./types";
+import { AIChatFeature, AIProvider, BrowserProfile, BrowserTab, TabSpace } from "./types";
 
 const SUSPEND_AFTER_MS = 5 * 60 * 1000;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
-const STORAGE_KEY = "lumen.session.v2";
+const LEGACY_STORAGE_KEY = "lumen.session.v2";
+const GLOBAL_STORAGE_KEY = "lumen.global.v1";
+const PROFILE_STORAGE_PREFIX = "lumen.profile.session.v1.";
 const SUMMARY_CACHE_KEY = "lumen.summary.cache.v1";
 
 const SPACE_COLORS = ["#0a84ff", "#30d158", "#ff9f0a", "#ff375f", "#64d2ff", "#bf5af2"];
 
-interface AppSession {
+interface ProfileSession {
   tabs: BrowserTab[];
   spaces: TabSpace[];
   activeTabId: string;
-  theme: "light" | "dark";
+  urlHistory: string[];
+}
+
+interface GlobalSettings {
   sidebarPinned: boolean;
   suspensionEnabled: boolean;
   sidebarWidth: number;
+  theme: "light" | "dark";
+  profiles: BrowserProfile[];
+  activeProfileId: string;
+}
+
+interface AppBootstrap {
+  global: GlobalSettings;
+  session: ProfileSession;
+  activeProfileId: string;
 }
 
 interface PageIntel {
@@ -72,6 +86,20 @@ function createTab(spaceId: string, url = "https://duckduckgo.com", title = "New
   };
 }
 
+function createWelcomeTab(spaceId: string): BrowserTab {
+  return {
+    id: crypto.randomUUID(),
+    title: "Welcome to Lumen",
+    url: "lumen://welcome",
+    kind: "welcome",
+    pinned: false,
+    suspended: false,
+    lastActiveAt: Date.now(),
+    createdAt: Date.now(),
+    spaceId
+  };
+}
+
 function createAITab(spaceId: string, query: string, label: string): BrowserTab {
   const cleanQuery = query.trim();
   const clipped = cleanQuery.length > 42 ? `${cleanQuery.slice(0, 42)}...` : cleanQuery;
@@ -90,6 +118,26 @@ function createAITab(spaceId: string, query: string, label: string): BrowserTab 
     aiProviderLabel: label,
     aiResponse: "",
     aiLoading: true
+  };
+}
+
+function createProfile(name: string): BrowserProfile {
+  return {
+    id: crypto.randomUUID(),
+    name,
+    createdAt: Date.now()
+  };
+}
+
+function defaultSession(): ProfileSession {
+  const baseSpace = createSpace("General", SPACE_COLORS[0] ?? "#0a84ff");
+  const welcomeTab = createWelcomeTab(baseSpace.id);
+
+  return {
+    tabs: [welcomeTab],
+    spaces: [baseSpace],
+    activeTabId: welcomeTab.id,
+    urlHistory: []
   };
 }
 
@@ -209,79 +257,163 @@ function deriveTopics(text: string): string[] {
     .map(([token]) => token);
 }
 
-function loadInitialSession(): AppSession {
-  const fallbackSpaces = [
-    createSpace("General", SPACE_COLORS[0] ?? "#0a84ff"),
-    createSpace("Research", SPACE_COLORS[1] ?? "#30d158")
-  ];
-  const firstSpaceId = fallbackSpaces[0]?.id ?? crypto.randomUUID();
-  const fallbackTab = createTab(firstSpaceId, "https://www.wikipedia.org", "Wikipedia");
+function normalizeSession(input: Partial<ProfileSession> | null | undefined): ProfileSession {
+  const fallback = defaultSession();
+  if (!input) {
+    return fallback;
+  }
+
+  const spaces = input.spaces?.length ? input.spaces : fallback.spaces;
+  const defaultSpaceId = spaces[0]?.id ?? fallback.spaces[0]!.id;
+  const tabs = input.tabs?.length
+    ? input.tabs.map((tab) => ({
+      ...tab,
+      kind: tab.kind ?? "web",
+      spaceId: tab.spaceId || defaultSpaceId
+    }))
+    : fallback.tabs;
+  const activeTabId = tabs.some((tab) => tab.id === input.activeTabId)
+    ? input.activeTabId ?? tabs[0]!.id
+    : tabs[0]!.id;
+
+  return {
+    tabs,
+    spaces,
+    activeTabId,
+    urlHistory: input.urlHistory ?? []
+  };
+}
+
+function defaultGlobal(profile: BrowserProfile): GlobalSettings {
+  return {
+    sidebarPinned: true,
+    suspensionEnabled: true,
+    sidebarWidth: 240,
+    theme: "light",
+    profiles: [profile],
+    activeProfileId: profile.id
+  };
+}
+
+function profileSessionKey(profileId: string): string {
+  return `${PROFILE_STORAGE_PREFIX}${profileId}`;
+}
+
+function readProfileSession(profileId: string): ProfileSession {
+  try {
+    const raw = window.localStorage.getItem(profileSessionKey(profileId));
+    return normalizeSession(raw ? (JSON.parse(raw) as Partial<ProfileSession>) : null);
+  } catch {
+    return defaultSession();
+  }
+}
+
+function loadBootstrap(): AppBootstrap {
+  const defaultProf = createProfile("Personal");
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
+    const globalRaw = window.localStorage.getItem(GLOBAL_STORAGE_KEY);
+    const legacyRaw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+
+    if (!globalRaw && legacyRaw) {
+      const legacy = JSON.parse(legacyRaw) as Partial<{
+        tabs: BrowserTab[];
+        spaces: TabSpace[];
+        activeTabId: string;
+        theme: "light" | "dark";
+        sidebarPinned: boolean;
+        suspensionEnabled: boolean;
+        sidebarWidth: number;
+      }>;
+
+      const global: GlobalSettings = {
+        ...defaultGlobal(defaultProf),
+        theme: legacy.theme === "dark" ? "dark" : "light",
+        sidebarPinned: legacy.sidebarPinned ?? true,
+        suspensionEnabled: legacy.suspensionEnabled ?? true,
+        sidebarWidth: typeof legacy.sidebarWidth === "number" ? Math.min(420, Math.max(180, legacy.sidebarWidth)) : 240
+      };
+      const session = normalizeSession({
+        tabs: legacy.tabs,
+        spaces: legacy.spaces,
+        activeTabId: legacy.activeTabId
+      });
+
+      window.localStorage.setItem(GLOBAL_STORAGE_KEY, JSON.stringify(global));
+      window.localStorage.setItem(profileSessionKey(global.activeProfileId), JSON.stringify(session));
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+
       return {
-        tabs: [fallbackTab],
-        spaces: fallbackSpaces,
-        activeTabId: fallbackTab.id,
-        theme: "light",
-        sidebarPinned: true,
-        suspensionEnabled: true,
-        sidebarWidth: 240
+        global,
+        session,
+        activeProfileId: global.activeProfileId
       };
     }
 
-    const parsed = JSON.parse(raw) as Partial<AppSession>;
-    const spaces = parsed.spaces?.length ? parsed.spaces : fallbackSpaces;
-    const defaultSpaceId = spaces[0]?.id ?? firstSpaceId;
-    const tabs = parsed.tabs?.length
-      ? parsed.tabs.map((tab) => ({
-        ...tab,
-        kind: tab.kind ?? "web",
-        spaceId: tab.spaceId || defaultSpaceId
-      }))
-      : [fallbackTab];
-    const activeTabId = tabs.some((tab) => tab.id === parsed.activeTabId)
-      ? parsed.activeTabId ?? tabs[0]?.id ?? fallbackTab.id
-      : tabs[0]?.id ?? fallbackTab.id;
+    if (!globalRaw) {
+      const global = defaultGlobal(defaultProf);
+      const session = defaultSession();
+      window.localStorage.setItem(GLOBAL_STORAGE_KEY, JSON.stringify(global));
+      window.localStorage.setItem(profileSessionKey(global.activeProfileId), JSON.stringify(session));
 
-    return {
-      tabs,
-      spaces,
-      activeTabId,
-      theme: parsed.theme === "dark" ? "dark" : "light",
+      return {
+        global,
+        session,
+        activeProfileId: global.activeProfileId
+      };
+    }
+
+    const parsed = JSON.parse(globalRaw) as Partial<GlobalSettings>;
+    const profiles = parsed.profiles?.length ? parsed.profiles : [defaultProf];
+    const activeProfileId = profiles.some((profile) => profile.id === parsed.activeProfileId)
+      ? parsed.activeProfileId ?? profiles[0]!.id
+      : profiles[0]!.id;
+
+    const global: GlobalSettings = {
       sidebarPinned: parsed.sidebarPinned ?? true,
       suspensionEnabled: parsed.suspensionEnabled ?? true,
-      sidebarWidth: typeof parsed.sidebarWidth === "number" ? Math.min(420, Math.max(180, parsed.sidebarWidth)) : 240
+      sidebarWidth: typeof parsed.sidebarWidth === "number" ? Math.min(420, Math.max(180, parsed.sidebarWidth)) : 240,
+      theme: parsed.theme === "dark" ? "dark" : "light",
+      profiles,
+      activeProfileId
+    };
+    const session = readProfileSession(activeProfileId);
+
+    return {
+      global,
+      session,
+      activeProfileId
     };
   } catch {
+    const global = defaultGlobal(defaultProf);
+    const session = defaultSession();
     return {
-      tabs: [fallbackTab],
-      spaces: fallbackSpaces,
-      activeTabId: fallbackTab.id,
-      theme: "light",
-      sidebarPinned: true,
-      suspensionEnabled: true,
-      sidebarWidth: 240
+      global,
+      session,
+      activeProfileId: global.activeProfileId
     };
   }
 }
 
 export function App() {
-  const initialSession = loadInitialSession();
-  const [tabs, setTabs] = useState<BrowserTab[]>(initialSession.tabs);
-  const [spaces, setSpaces] = useState<TabSpace[]>(initialSession.spaces);
-  const [activeTabId, setActiveTabId] = useState<string>(initialSession.activeTabId);
+  const bootstrap = loadBootstrap();
+  const [tabs, setTabs] = useState<BrowserTab[]>(bootstrap.session.tabs);
+  const [spaces, setSpaces] = useState<TabSpace[]>(bootstrap.session.spaces);
+  const [activeTabId, setActiveTabId] = useState<string>(bootstrap.session.activeTabId);
+  const [urlHistory, setUrlHistory] = useState<string[]>(bootstrap.session.urlHistory);
   const [urlValue, setUrlValue] = useState("");
   const [urlFocused, setUrlFocused] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">(initialSession.theme);
-  const [sidebarPinned, setSidebarPinned] = useState(initialSession.sidebarPinned);
+  const [theme, setTheme] = useState<"light" | "dark">(bootstrap.global.theme);
+  const [sidebarPinned, setSidebarPinned] = useState(bootstrap.global.sidebarPinned);
   const [sidebarPeek, setSidebarPeek] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskManagerOpen, setTaskManagerOpen] = useState(false);
-  const [suspensionEnabled, setSuspensionEnabled] = useState(initialSession.suspensionEnabled);
-  const [sidebarWidth, setSidebarWidth] = useState(initialSession.sidebarWidth);
+  const [suspensionEnabled, setSuspensionEnabled] = useState(bootstrap.global.suspensionEnabled);
+  const [sidebarWidth, setSidebarWidth] = useState(bootstrap.global.sidebarWidth);
+  const [profiles, setProfiles] = useState<BrowserProfile[]>(bootstrap.global.profiles);
+  const [activeProfileId, setActiveProfileId] = useState<string>(bootstrap.activeProfileId);
+  const [providerSuggestions, setProviderSuggestions] = useState<string[]>([]);
   const [queuedPrompt, setQueuedPrompt] = useState<{
     id: string;
     text: string;
@@ -297,6 +429,27 @@ export function App() {
   const pendingAIMap = useRef<Map<string, PendingAI>>(new Map());
 
   const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId), [tabs, activeTabId]);
+
+  const localAddressSuggestions = useMemo(() => {
+    const query = urlValue.trim().toLowerCase();
+    if (!query || query.startsWith("@") || query.startsWith(">") || query.startsWith("ask:")) {
+      return [];
+    }
+
+    const fromHistory = urlHistory
+      .filter((entry) => entry.toLowerCase().includes(query))
+      .slice(0, 5);
+    const fromTabs = tabs
+      .map((tab) => tab.url)
+      .filter((url) => url.toLowerCase().includes(query))
+      .slice(0, 5);
+
+    return [...new Set([...fromHistory, ...fromTabs])].slice(0, 8);
+  }, [urlValue, urlHistory, tabs]);
+
+  const addressSuggestions = useMemo(() => {
+    return [...new Set([...localAddressSuggestions, ...providerSuggestions])].slice(0, 8);
+  }, [localAddressSuggestions, providerSuggestions]);
 
   const addToast = useCallback((text: string) => {
     const id = crypto.randomUUID();
@@ -347,8 +500,8 @@ export function App() {
     if (!activeTab) {
       return;
     }
-    if (activeTab.kind === "ai") {
-      addToast("Page intelligence is not available on AI result tabs.");
+    if (activeTab.kind !== "web") {
+      addToast("Page intelligence is available only on webpage tabs.");
       return;
     }
 
@@ -409,6 +562,8 @@ export function App() {
     if (activeTab) {
       if (activeTab.kind === "ai" && activeTab.aiQuery) {
         setUrlValue(`@chat ${activeTab.aiQuery}`);
+      } else if (activeTab.kind === "welcome") {
+        setUrlValue("");
       } else {
         setUrlValue(activeTab.url);
       }
@@ -416,23 +571,46 @@ export function App() {
   }, [activeTab?.id, activeTab?.url, activeTab?.kind, activeTab?.aiQuery]);
 
   useEffect(() => {
+    const query = urlValue.trim();
+    if (!urlFocused || query.length < 2 || query.startsWith("@") || query.startsWith(">") || query.toLowerCase().startsWith("ask:")) {
+      setProviderSuggestions([]);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void window.lumen.browser.getAddressSuggestions(query).then((items) => {
+        setProviderSuggestions(items);
+      });
+    }, 160);
+
+    return () => window.clearTimeout(timer);
+  }, [urlValue, urlFocused]);
+
+  useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        tabs,
-        spaces,
-        activeTabId,
-        theme,
-        sidebarPinned,
-        suspensionEnabled,
-        sidebarWidth
-      } satisfies AppSession)
-    );
-  }, [tabs, spaces, activeTabId, theme, sidebarPinned, suspensionEnabled, sidebarWidth]);
+    const global: GlobalSettings = {
+      theme,
+      sidebarPinned,
+      suspensionEnabled,
+      sidebarWidth,
+      profiles,
+      activeProfileId
+    };
+    window.localStorage.setItem(GLOBAL_STORAGE_KEY, JSON.stringify(global));
+  }, [theme, sidebarPinned, suspensionEnabled, sidebarWidth, profiles, activeProfileId]);
+
+  useEffect(() => {
+    const session: ProfileSession = {
+      tabs,
+      spaces,
+      activeTabId,
+      urlHistory
+    };
+    window.localStorage.setItem(profileSessionKey(activeProfileId), JSON.stringify(session));
+  }, [tabs, spaces, activeTabId, urlHistory, activeProfileId]);
 
   useEffect(() => {
     return window.lumen.ai.onStream((payload) => {
@@ -557,6 +735,14 @@ export function App() {
           text: `Rewrite this text to be clearer and more concise:\n\n${selected}`,
           feature: "context_menu"
         });
+        return;
+      }
+
+      if (payload.action === "search_selection") {
+        void runAddressAIQuery({
+          text: `Search this selected term with AI and provide a concise answer with key points:\n\n${selected}`,
+          label: "AI (selection)"
+        });
       }
     });
 
@@ -571,7 +757,7 @@ export function App() {
       stopContextListener();
       stopNewTabListener();
     };
-  }, [requestAIText, addToast]);
+  }, [requestAIText, addToast, runAddressAIQuery]);
 
   useEffect(() => {
     const metricsInterval = window.setInterval(() => {
@@ -698,6 +884,33 @@ export function App() {
     updateTab(id, (tab) => ({ ...tab, suspended: false, lastActiveAt: Date.now() }));
   };
 
+  const handleSwitchProfile = (profileId: string) => {
+    if (profileId === activeProfileId) {
+      return;
+    }
+
+    const currentSession: ProfileSession = { tabs, spaces, activeTabId, urlHistory };
+    window.localStorage.setItem(profileSessionKey(activeProfileId), JSON.stringify(currentSession));
+
+    const nextSession = readProfileSession(profileId);
+    setActiveProfileId(profileId);
+    setTabs(nextSession.tabs);
+    setSpaces(nextSession.spaces);
+    setActiveTabId(nextSession.activeTabId);
+    setUrlHistory(nextSession.urlHistory);
+    setUrlFocused(false);
+    setProviderSuggestions([]);
+  };
+
+  const handleAddProfile = () => {
+    const nextIndex = profiles.length + 1;
+    const profile = createProfile(`Profile ${nextIndex}`);
+    setProfiles((prev) => [...prev, profile]);
+    const session = defaultSession();
+    window.localStorage.setItem(profileSessionKey(profile.id), JSON.stringify(session));
+    handleSwitchProfile(profile.id);
+  };
+
   function handleNewTab(spaceId?: string, url?: string, title?: string) {
     const fallbackSpace = spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
     const tab = createTab(spaceId ?? fallbackSpace, url, title ?? "New Tab");
@@ -742,55 +955,15 @@ export function App() {
     });
   };
 
-  const handleNavigate = async () => {
-    const raw = urlValue.trim();
-    const aiQuery = parseAddressAI(raw);
-
-    if (aiQuery) {
-      const { query, providerOverride, modelOverride, label } = aiQuery;
-      const fallbackSpace = activeTab?.spaceId ?? spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
-      const aiTab = createAITab(fallbackSpace, query, label);
-
-      setTabs((prev) => [...prev, aiTab]);
-      setActiveTabId(aiTab.id);
-      setUrlFocused(false);
-
-      try {
-        const response = await window.lumen.ai.startChat({
-          conversationId: `url-bar-${aiTab.id}`,
-          feature: "url_bar",
-          maxTokens: 900,
-          providerOverride,
-          modelOverride,
-          messages: [
-            {
-              role: "user",
-              content: `Current page: ${activeTab?.title ?? "Unknown"} (${activeTab?.url ?? "N/A"})\n\n${query}`
-            }
-          ]
-        });
-
-        urlBarAIRequestMap.current.set(response.requestId, aiTab.id);
-      } catch (error) {
-        updateTab(aiTab.id, (tab) => ({
-          ...tab,
-          aiLoading: false,
-          aiError: error instanceof Error ? error.message : "AI request failed",
-          aiResponse: error instanceof Error ? error.message : "AI request failed"
-        }));
-      }
-
-      return;
-    }
-
-    const nextUrl = normalizeAddress(raw);
+  function navigateToAddress(rawInput: string): void {
+    const nextUrl = normalizeAddress(rawInput);
 
     if (!activeTab) {
       return;
     }
 
     updateTab(activeTab.id, (tab) => {
-      if (tab.kind === "ai") {
+      if (tab.kind === "ai" || tab.kind === "welcome") {
         return {
           ...tab,
           kind: "web",
@@ -814,6 +987,72 @@ export function App() {
         lastActiveAt: Date.now()
       };
     });
+
+    setUrlHistory((prev) => [nextUrl, ...prev.filter((entry) => entry !== nextUrl)].slice(0, 120));
+    setUrlFocused(false);
+    setUrlValue("");
+    setProviderSuggestions([]);
+  }
+
+  async function runAddressAIQuery(query: {
+    text: string;
+    providerOverride?: AIProvider;
+    modelOverride?: string;
+    label: string;
+  }): Promise<void> {
+    const fallbackSpace = activeTab?.spaceId ?? spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
+    const aiTab = createAITab(fallbackSpace, query.text, query.label);
+
+    setTabs((prev) => [...prev, aiTab]);
+    setActiveTabId(aiTab.id);
+    setUrlFocused(false);
+    setProviderSuggestions([]);
+
+    try {
+      const response = await window.lumen.ai.startChat({
+        conversationId: `url-bar-${aiTab.id}`,
+        feature: "url_bar",
+        maxTokens: 900,
+        providerOverride: query.providerOverride,
+        modelOverride: query.modelOverride,
+        messages: [
+          {
+            role: "user",
+            content: `Current page: ${activeTab?.title ?? "Unknown"} (${activeTab?.url ?? "N/A"})\n\n${query.text}`
+          }
+        ]
+      });
+
+      urlBarAIRequestMap.current.set(response.requestId, aiTab.id);
+    } catch (error) {
+      updateTab(aiTab.id, (tab) => ({
+        ...tab,
+        aiLoading: false,
+        aiError: error instanceof Error ? error.message : "AI request failed",
+        aiResponse: error instanceof Error ? error.message : "AI request failed"
+      }));
+    }
+  }
+
+  const handleAcceptAddressSuggestion = (value: string) => {
+    navigateToAddress(value);
+  };
+
+  const handleNavigate = async () => {
+    const raw = urlValue.trim();
+    const aiQuery = parseAddressAI(raw);
+
+    if (aiQuery) {
+      await runAddressAIQuery({
+        text: aiQuery.query,
+        providerOverride: aiQuery.providerOverride,
+        modelOverride: aiQuery.modelOverride,
+        label: aiQuery.label
+      });
+      return;
+    }
+
+    navigateToAddress(raw);
   };
 
   async function handleAutoGroupTabs() {
@@ -995,6 +1234,9 @@ export function App() {
       case "Group tabs by topic":
         void handleAutoGroupTabs();
         break;
+      case "Summarize this page (AI)":
+        void runPageIntelligence();
+        break;
       default:
         break;
     }
@@ -1025,13 +1267,19 @@ export function App() {
       <TitleBar
         sidebarPinned={sidebarPinned}
         activeTabId={activeTab?.id}
+        profiles={profiles}
+        activeProfileId={activeProfileId}
+        onSwitchProfile={handleSwitchProfile}
+        onAddProfile={handleAddProfile}
         onToggleSidebarPin={() => setSidebarPinned((current) => !current)}
         onOpenCommandPalette={() => setPaletteOpen(true)}
         urlValue={urlValue}
-        activeUrl={activeTab?.url ?? ""}
+        activeUrl={activeTab?.kind === "welcome" ? "" : activeTab?.url ?? ""}
+        addressSuggestions={addressSuggestions}
         urlFocused={urlFocused}
         onUrlFocusChange={setUrlFocused}
         onUrlChange={setUrlValue}
+        onUrlAcceptSuggestion={handleAcceptAddressSuggestion}
         onUrlSubmit={handleNavigate}
         onRunPageIntelligence={() => void runPageIntelligence()}
       />
@@ -1087,11 +1335,19 @@ export function App() {
 
           <WebViewport
             tab={activeTab}
+            profileId={activeProfileId}
             webviewRef={webviewRef}
             onRestoreTab={() => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, suspended: false }))}
             onTitleChange={(title) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, title }))}
             onUrlChange={(url) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, url }))}
             onFaviconChange={(favicon) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, favicon }))}
+            onStartBrowsing={(seedUrl) => {
+              if (!activeTab) {
+                return;
+              }
+              setUrlValue(seedUrl);
+              navigateToAddress(seedUrl);
+            }}
           />
 
           <footer className="status-bar">

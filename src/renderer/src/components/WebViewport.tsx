@@ -3,20 +3,24 @@ import { BrowserTab } from "../types";
 
 interface WebViewportProps {
   tab: BrowserTab | undefined;
+  profileId: string;
   webviewRef: MutableRefObject<Electron.WebviewTag | null>;
   onTitleChange: (title: string) => void;
   onUrlChange: (url: string) => void;
   onFaviconChange: (favicon: string) => void;
   onRestoreTab: () => void;
+  onStartBrowsing: (url: string) => void;
 }
 
 export function WebViewport({
   tab,
+  profileId,
   webviewRef,
   onTitleChange,
   onUrlChange,
   onFaviconChange,
-  onRestoreTab
+  onRestoreTab,
+  onStartBrowsing
 }: WebViewportProps) {
   useEffect(() => {
     if (!tab || tab.suspended || tab.kind === "ai") {
@@ -104,14 +108,35 @@ export function WebViewport({
     );
   }
 
+  if (tab.kind === "welcome") {
+    return (
+      <section className="viewport welcome-view">
+        <div className="welcome-card">
+          <h1>Lumen</h1>
+          <p>Welcome. Type a URL or search query to start browsing.</p>
+          <div className="welcome-actions">
+            <button className="primary-button" onClick={() => onStartBrowsing("https://duckduckgo.com")}>
+              Start browsing
+            </button>
+            <button className="secondary-button" onClick={() => onStartBrowsing("https://www.youtube.com")}>
+              Open YouTube
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="viewport">
       <webview
+        key={`${profileId}:${tab.id}`}
         ref={(node) => {
           webviewRef.current = node as Electron.WebviewTag | null;
         }}
         className="webview"
         src={tab.url}
+        partition={`persist:lumen-profile-${profileId}`}
         allowpopups
       />
     </section>

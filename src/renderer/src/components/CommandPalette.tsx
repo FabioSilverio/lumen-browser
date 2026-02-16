@@ -16,7 +16,8 @@ const COMMANDS = [
   "Open task manager",
   "Toggle AI panel",
   "Suggest stale tabs",
-  "Group tabs by topic"
+  "Group tabs by topic",
+  "Summarize this page (AI)"
 ];
 
 export function CommandPalette({

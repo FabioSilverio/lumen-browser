@@ -39,6 +39,23 @@
   opacity: 0.88;
 }
 
+.profile-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.profile-picker select {
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  color: var(--text);
+  font-size: 11px;
+  padding: 0 8px;
+  max-width: 120px;
+}
+
 .title-actions {
   display: flex;
   align-items: center;
@@ -248,6 +265,13 @@
   display: flex;
   flex-direction: column;
   gap: 5px;
+  border-radius: 8px;
+  transition: background var(--micro) var(--ease-apple), outline-color var(--micro) var(--ease-apple);
+}
+
+.space-group.drag-target {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  outline: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .space-header {
@@ -594,6 +618,40 @@
   border: none;
   background: var(--surface);
   overflow: hidden;
+}
+
+.welcome-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(880px 420px at 50% -20%, rgba(10, 132, 255, 0.08), transparent), var(--surface);
+}
+
+.welcome-card {
+  width: min(640px, calc(100% - 40px));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+}
+
+.welcome-card h1 {
+  margin: 0 0 8px;
+  font-size: 30px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+
+.welcome-card p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.welcome-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 10px;
 }
 
 .ai-tab-view {

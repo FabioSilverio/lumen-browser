@@ -5,15 +5,22 @@ interface UrlBarProps {
   value: string;
   activeUrl: string;
   dragTabId?: string;
+  suggestions: string[];
   focused: boolean;
   onFocusChange: (focused: boolean) => void;
   onChange: (value: string) => void;
+  onAcceptSuggestion: (value: string) => void;
   onSubmit: () => void;
   onRunPageIntelligence: () => void;
   compact?: boolean;
 }
 
 const AI_COMMANDS = ["@chat", "@gpt", "@claude", "@grok", "@qwen", "@kimi", "@openclaw"];
+
+type DropdownItem = {
+  value: string;
+  kind: "command" | "suggestion";
+};
 
 function simplify(url: string): string {
   try {
@@ -29,9 +36,11 @@ export function UrlBar({
   value,
   activeUrl,
   dragTabId,
+  suggestions,
   focused,
   onFocusChange,
   onChange,
+  onAcceptSuggestion,
   onSubmit,
   onRunPageIntelligence,
   compact = false
@@ -40,25 +49,28 @@ export function UrlBar({
 
   const display = useMemo(() => (focused ? value : simplify(activeUrl)), [value, activeUrl, focused]);
 
-  const aiMatches = useMemo(() => {
+  const dropdownItems = useMemo<DropdownItem[]>(() => {
     if (!focused) {
       return [];
     }
 
     const trimmed = value.trim();
-    if (!trimmed.startsWith("@")) {
-      return [];
+    if (trimmed.startsWith("@")) {
+      const [prefix] = trimmed.split(/\s+/);
+      if (!prefix) {
+        return AI_COMMANDS.map((cmd) => ({ value: cmd, kind: "command" }));
+      }
+
+      return AI_COMMANDS
+        .filter((cmd) => cmd.startsWith(prefix.toLowerCase()))
+        .slice(0, 6)
+        .map((cmd) => ({ value: cmd, kind: "command" }));
     }
 
-    const [prefix] = trimmed.split(/\s+/);
-    if (!prefix) {
-      return AI_COMMANDS;
-    }
+    return suggestions.slice(0, 8).map((item) => ({ value: item, kind: "suggestion" }));
+  }, [focused, value, suggestions]);
 
-    return AI_COMMANDS.filter((cmd) => cmd.startsWith(prefix.toLowerCase())).slice(0, 5);
-  }, [focused, value]);
-
-  const applySuggestion = (command: string) => {
+  const applyCommand = (command: string) => {
     const trimmed = value.trim();
     const parts = trimmed.split(/\s+/);
     const tail = parts.length > 1 ? parts.slice(1).join(" ") : "";
@@ -66,41 +78,67 @@ export function UrlBar({
     setSelectedSuggestion(0);
   };
 
+  const pickDropdownItem = (item: DropdownItem) => {
+    if (item.kind === "command") {
+      applyCommand(item.value);
+      return;
+    }
+
+    onChange(item.value);
+    onAcceptSuggestion(item.value);
+    setSelectedSuggestion(0);
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (!aiMatches.length) {
+    if (!dropdownItems.length) {
       return;
     }
 
     if (event.key === "Tab") {
       event.preventDefault();
-      const pick = aiMatches[selectedSuggestion] ?? aiMatches[0];
+      const pick = dropdownItems[selectedSuggestion] ?? dropdownItems[0];
       if (pick) {
-        applySuggestion(pick);
+        if (pick.kind === "command") {
+          applyCommand(pick.value);
+        } else {
+          onChange(pick.value);
+          setSelectedSuggestion(0);
+        }
       }
       return;
     }
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setSelectedSuggestion((prev) => (prev + 1) % aiMatches.length);
+      setSelectedSuggestion((prev) => (prev + 1) % dropdownItems.length);
       return;
     }
 
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setSelectedSuggestion((prev) => (prev - 1 + aiMatches.length) % aiMatches.length);
+      setSelectedSuggestion((prev) => (prev - 1 + dropdownItems.length) % dropdownItems.length);
+      return;
+    }
+
+    if (event.key === "Enter") {
+      const pick = dropdownItems[selectedSuggestion];
+      if (pick?.kind === "suggestion") {
+        event.preventDefault();
+        onChange(pick.value);
+        onAcceptSuggestion(pick.value);
+      }
     }
   };
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (aiMatches.length && value.trim().startsWith("@") && !value.trim().includes(" ")) {
-      const pick = aiMatches[selectedSuggestion] ?? aiMatches[0];
-      if (pick) {
-        applySuggestion(pick);
-        return;
-      }
+
+    const pick = dropdownItems[selectedSuggestion];
+    if (pick && pick.kind === "command" && value.trim().startsWith("@") && !value.trim().includes(" ")) {
+      applyCommand(pick.value);
+      return;
     }
+
     onSubmit();
   };
 
@@ -143,20 +181,20 @@ export function UrlBar({
         </button>
       </form>
 
-      {focused && aiMatches.length ? (
+      {focused && dropdownItems.length ? (
         <div className="url-autocomplete">
-          {aiMatches.map((cmd, idx) => (
+          {dropdownItems.map((item, idx) => (
             <button
-              key={cmd}
+              key={`${item.kind}:${item.value}`}
               type="button"
               className={`url-autocomplete-item ${selectedSuggestion === idx ? "active" : ""}`}
               onMouseEnter={() => setSelectedSuggestion(idx)}
               onMouseDown={(event) => {
                 event.preventDefault();
-                applySuggestion(cmd);
+                pickDropdownItem(item);
               }}
             >
-              {cmd}
+              {item.value}
             </button>
           ))}
         </div>

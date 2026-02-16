@@ -34,6 +34,7 @@ const api = {
     }
   },
   browser: {
+    getAddressSuggestions: (query: string) => ipcRenderer.invoke("browser:get-address-suggestions", query),
     onNewTabRequested: (listener: (payload: { url: string }) => void) => {
       const wrapped = (_event: unknown, payload: { url: string }) => listener(payload);
       ipcRenderer.on("browser:new-tab-requested", wrapped);

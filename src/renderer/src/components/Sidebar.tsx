@@ -1,4 +1,4 @@
-import { MouseEvent as ReactMouseEvent } from "react";
+import { MouseEvent as ReactMouseEvent, useState } from "react";
 import { Bot, ChevronDown, ChevronRight, FolderPlus, Globe2, MoonStar, Pin, PinOff, Plus, Settings2, X } from "lucide-react";
 import { BrowserTab, TabSpace } from "../types";
 
@@ -125,6 +125,7 @@ export function Sidebar({
   onOpenSettings
 }: SidebarProps) {
   const pinnedTabs = tabs.filter((tab) => tab.pinned);
+  const [dragTargetSpaceId, setDragTargetSpaceId] = useState<string | null>(null);
 
   const handleResizeStart = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -182,19 +183,42 @@ export function Sidebar({
             const spaceTabs = tabs.filter((tab) => !tab.pinned && tab.spaceId === space.id);
             return (
               <section
-                className="space-group"
+                className={`space-group ${dragTargetSpaceId === space.id ? "drag-target" : ""}`}
                 key={space.id}
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragTargetSpaceId(space.id);
+                }}
+                onDragLeave={() => {
+                  setDragTargetSpaceId((current) => (current === space.id ? null : current));
+                }}
                 onDrop={(event) => {
                   event.preventDefault();
+                  event.stopPropagation();
                   const sourceId = event.dataTransfer.getData("text/tab-id");
                   if (sourceId) {
                     onMoveTabToSpace(sourceId, space.id);
                   }
+                  setDragTargetSpaceId(null);
                 }}
               >
                 <button
                   className="space-header"
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setDragTargetSpaceId(space.id);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const sourceId = event.dataTransfer.getData("text/tab-id");
+                    if (sourceId) {
+                      onMoveTabToSpace(sourceId, space.id);
+                    }
+                    setDragTargetSpaceId(null);
+                  }}
                   onClick={() => onToggleSpaceCollapsed(space.id)}
                   title={space.name}
                 >
@@ -207,7 +231,23 @@ export function Sidebar({
                 </button>
 
                 {!space.collapsed && (
-                  <div className="tabs-list">
+                  <div
+                    className="tabs-list"
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDragTargetSpaceId(space.id);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const sourceId = event.dataTransfer.getData("text/tab-id");
+                      if (sourceId) {
+                        onMoveTabToSpace(sourceId, space.id);
+                      }
+                      setDragTargetSpaceId(null);
+                    }}
+                  >
                     {spaceTabs.map((tab) => (
                       <TabItem
                         key={tab.id}

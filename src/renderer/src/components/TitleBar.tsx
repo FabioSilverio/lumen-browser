@@ -1,17 +1,24 @@
 import { useEffect, useState } from "react";
 import { Command, PanelLeft } from "lucide-react";
 import { UrlBar } from "./UrlBar";
+import { BrowserProfile } from "../types";
 
 interface TitleBarProps {
   sidebarPinned: boolean;
   activeTabId?: string;
+  profiles: BrowserProfile[];
+  activeProfileId: string;
+  onSwitchProfile: (profileId: string) => void;
+  onAddProfile: () => void;
   onToggleSidebarPin: () => void;
   onOpenCommandPalette: () => void;
   urlValue: string;
   activeUrl: string;
+  addressSuggestions: string[];
   urlFocused: boolean;
   onUrlFocusChange: (focused: boolean) => void;
   onUrlChange: (value: string) => void;
+  onUrlAcceptSuggestion: (value: string) => void;
   onUrlSubmit: () => void;
   onRunPageIntelligence: () => void;
 }
@@ -19,13 +26,19 @@ interface TitleBarProps {
 export function TitleBar({
   sidebarPinned,
   activeTabId,
+  profiles,
+  activeProfileId,
+  onSwitchProfile,
+  onAddProfile,
   onToggleSidebarPin,
   onOpenCommandPalette,
   urlValue,
   activeUrl,
+  addressSuggestions,
   urlFocused,
   onUrlFocusChange,
   onUrlChange,
+  onUrlAcceptSuggestion,
   onUrlSubmit,
   onRunPageIntelligence
 }: TitleBarProps) {
@@ -47,6 +60,18 @@ export function TitleBar({
           <PanelLeft size={16} strokeWidth={1.8} />
         </button>
         <span className="wordmark">Lumen</span>
+        <div className="profile-picker no-drag">
+          <select value={activeProfileId} onChange={(event) => onSwitchProfile(event.target.value)} title="Profile">
+            {profiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+          <button className="tab-mini" onClick={onAddProfile} title="New profile">
+            +
+          </button>
+        </div>
       </div>
 
       <div className="title-center no-drag">
@@ -55,9 +80,11 @@ export function TitleBar({
           dragTabId={activeTabId}
           value={urlValue}
           activeUrl={activeUrl}
+          suggestions={addressSuggestions}
           focused={urlFocused}
           onFocusChange={onUrlFocusChange}
           onChange={onUrlChange}
+          onAcceptSuggestion={onUrlAcceptSuggestion}
           onSubmit={onUrlSubmit}
           onRunPageIntelligence={onRunPageIntelligence}
         />

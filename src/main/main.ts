@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { registerWindowIpc } from "./ipc/window-controls";
 import { registerSystemIpc } from "./ipc/system";
 import { registerAIIpc } from "./ipc/ai";
+import { registerBrowserIpc } from "./ipc/browser";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
@@ -115,6 +116,15 @@ function createMainWindow(): BrowserWindow {
               text: selectedText
             });
           }
+        },
+        {
+          label: "Search this selection with AI",
+          click: () => {
+            mainWindow.webContents.send("ai:context-action", {
+              action: "search_selection",
+              text: selectedText
+            });
+          }
         }
       ]);
 
@@ -135,6 +145,7 @@ async function bootstrap(): Promise<void> {
 
   registerWindowIpc(mainWindow);
   registerSystemIpc();
+  registerBrowserIpc();
   registerAIIpc(mainWindow);
 
   app.on("activate", () => {
