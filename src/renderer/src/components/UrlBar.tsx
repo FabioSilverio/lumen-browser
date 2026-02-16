@@ -1,4 +1,4 @@
-﻿import { FormEvent, useMemo } from "react";
+import { FormEvent, useMemo } from "react";
 import { Lock, Sparkles } from "lucide-react";
 
 interface UrlBarProps {
@@ -9,19 +9,29 @@ interface UrlBarProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   onRunPageIntelligence: () => void;
+  compact?: boolean;
 }
 
 function simplify(url: string): string {
   try {
     const parsed = new URL(url);
     const path = parsed.pathname === "/" ? "" : parsed.pathname;
-    return parsed.hostname.replace(/^www\./, "") + path;
+    return `${parsed.hostname.replace(/^www\./, "")}${path}`;
   } catch {
     return url;
   }
 }
 
-export function UrlBar({ value, activeUrl, focused, onFocusChange, onChange, onSubmit, onRunPageIntelligence }: UrlBarProps) {
+export function UrlBar({
+  value,
+  activeUrl,
+  focused,
+  onFocusChange,
+  onChange,
+  onSubmit,
+  onRunPageIntelligence,
+  compact = false
+}: UrlBarProps) {
   const display = useMemo(() => (focused ? value : simplify(activeUrl)), [value, activeUrl, focused]);
 
   const handleSubmit = (event: FormEvent) => {
@@ -30,10 +40,10 @@ export function UrlBar({ value, activeUrl, focused, onFocusChange, onChange, onS
   };
 
   return (
-    <div className="url-shell">
+    <div className={`url-shell ${compact ? "compact" : ""}`}>
       <form className={`url-bar ${focused ? "focused" : ""}`} onSubmit={handleSubmit}>
-        <span className="security-icon" aria-hidden>
-          <Lock size={15} />
+        <span className="security-icon" aria-hidden="true">
+          <Lock size={12} strokeWidth={1.8} />
         </span>
         <input
           id="lumen-url-input"
@@ -41,12 +51,12 @@ export function UrlBar({ value, activeUrl, focused, onFocusChange, onChange, onS
           onFocus={() => onFocusChange(true)}
           onBlur={() => onFocusChange(false)}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="Search or enter URL"
+          placeholder="Search, URL, or @gpt/@claude/@grok"
           spellCheck={false}
           autoComplete="off"
         />
         <button type="button" className="url-intelligence" onClick={onRunPageIntelligence} title="Page intelligence">
-          <Sparkles size={14} />
+          <Sparkles size={13} strokeWidth={1.8} />
         </button>
       </form>
     </div>

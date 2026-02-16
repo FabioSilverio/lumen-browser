@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AIPanelSettings, AIProvider, AIUsage, BrowserTab, ChatMessage } from "../types";
+import { Square, X } from "lucide-react";
+import { AIChatFeature, AIPanelSettings, AIProvider, AIUsage, BrowserTab, ChatMessage } from "../types";
 
 interface PromptSeed {
   id: string;
   text: string;
-  feature?: "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search";
+  feature?: AIChatFeature;
 }
 
 interface AIPanelProps {
@@ -16,9 +17,9 @@ interface AIPanelProps {
 }
 
 const PROVIDER_MODELS: Record<AIProvider, string[]> = {
-  openai: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o3-mini"],
-  anthropic: ["claude-sonnet-4-20250514", "claude-opus-4-0-20250514", "claude-haiku-4-5-20251001"],
-  xai: ["grok-3", "grok-3-mini"]
+  openai: ["gpt-5", "gpt-5-mini", "gpt-4.1", "o3", "o4-mini", "gpt-4o"],
+  anthropic: ["claude-opus-4-1", "claude-sonnet-4", "claude-opus-4-0", "claude-haiku-4-5"],
+  xai: ["grok-4", "grok-3", "grok-3-mini"]
 };
 
 interface ChatUIMessage extends ChatMessage {
@@ -56,6 +57,7 @@ export function AIPanel({
   const [messages, setMessages] = useState<ChatUIMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const requestMap = useRef<Map<string, string>>(new Map());
 
   const loadConfig = async () => {
@@ -99,6 +101,7 @@ export function AIPanel({
 
       if (payload.done) {
         requestMap.current.delete(payload.requestId);
+        setActiveRequestId((current) => (current === payload.requestId ? null : current));
         setIsSending(false);
 
         if (payload.error) {
@@ -127,7 +130,7 @@ export function AIPanel({
 
   const sendPrompt = async (
     userText: string,
-    feature: "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search" = "chat"
+    feature: AIChatFeature = "chat"
   ) => {
     if (!settings || !hasApiKey || !userText.trim() || budget.reached) {
       return;
@@ -164,6 +167,7 @@ export function AIPanel({
       });
 
       requestMap.current.set(result.requestId, assistantMessage.id);
+      setActiveRequestId(result.requestId);
     } catch (error) {
       setIsSending(false);
       setMessages((prev) =>
@@ -193,6 +197,17 @@ export function AIPanel({
   const canSend = useMemo(() => {
     return Boolean(settings && hasApiKey && input.trim() && !isSending && !budget.reached);
   }, [settings, hasApiKey, input, isSending, budget.reached]);
+
+  const stopActiveRequest = async () => {
+    if (!activeRequestId) {
+      return;
+    }
+
+    await window.lumen.ai.cancelChat(activeRequestId);
+    setConnectionMessage("Request canceled.");
+    setActiveRequestId(null);
+    setIsSending(false);
+  };
 
   const handleSave = async () => {
     if (!settings) {
@@ -232,7 +247,7 @@ export function AIPanel({
     <aside className={`ai-panel ${open ? "open" : ""}`}>
       <div className="ai-header">
         <h2>AI</h2>
-        <button className="icon-button" onClick={onClose}>X</button>
+        <button className="icon-button" onClick={onClose}><X size={14} strokeWidth={1.8} /></button>
       </div>
 
       {settings && (
@@ -256,16 +271,19 @@ export function AIPanel({
 
           <label>
             Model
-            <select
+            <input
+              list={`models-${settings.provider}`}
               value={settings.model}
               onChange={(event) => setSettings({ ...settings, model: event.target.value })}
-            >
+              placeholder="Model name"
+            />
+            <datalist id={`models-${settings.provider}`}>
               {models.map((model) => (
                 <option key={model} value={model}>
                   {model}
                 </option>
               ))}
-            </select>
+            </datalist>
           </label>
 
           <label>
@@ -380,6 +398,11 @@ export function AIPanel({
           <button className="primary-button" disabled={!canSend}>
             Send
           </button>
+          {isSending && activeRequestId ? (
+            <button type="button" className="secondary-button" onClick={() => void stopActiveRequest()} title="Cancel request">
+              <Square size={12} strokeWidth={2} />
+            </button>
+          ) : null}
         </form>
       </section>
     </aside>

@@ -13,7 +13,7 @@ interface AppSettings {
 const DEFAULT_SETTINGS: AppSettings = {
   ai: {
     provider: "openai",
-    model: "gpt-4o-mini",
+    model: "gpt-5-mini",
     systemPrompt: "You are Lumen AI, a helpful browser assistant. Be concise and direct.",
     monthlyBudgetUsd: 20
   },

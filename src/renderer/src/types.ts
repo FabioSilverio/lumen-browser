@@ -1,4 +1,5 @@
 export type AIProvider = "openai" | "anthropic" | "xai";
+export type AIChatFeature = "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search";
 
 export interface AIPanelSettings {
   provider: AIProvider;
@@ -98,7 +99,9 @@ declare global {
           messages: ChatMessage[];
           maxTokens?: number;
           temperature?: number;
-          feature?: "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search";
+          feature?: AIChatFeature;
+          providerOverride?: AIProvider;
+          modelOverride?: string;
         }) => Promise<{ requestId: string }>;
         cancelChat: (requestId: string) => Promise<{ ok: boolean }>;
         onStream: (

@@ -1,9 +1,9 @@
 :root {
-  --font-primary: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-ui: 13px;
+  --font-primary: "Helvetica Neue", "Segoe UI Variable Text", "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-ui: 12px;
   --font-body: 15px;
-  --font-title: 24px;
-  --font-hero: 34px;
+  --font-title: 20px;
+  --font-hero: 28px;
 
   --radius-window: 12px;
   --radius-button: 8px;
@@ -58,7 +58,6 @@ body {
   font-family: var(--font-primary);
   font-size: var(--font-body);
   font-weight: 400;
-  line-height: 1.45;
   letter-spacing: 0;
   color: var(--text);
   background: radial-gradient(1200px 800px at 10% -20%, rgba(10, 132, 255, 0.1), transparent),

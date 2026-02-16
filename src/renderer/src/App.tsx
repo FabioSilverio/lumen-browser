@@ -4,9 +4,8 @@ import { CommandPalette } from "./components/CommandPalette";
 import { Sidebar } from "./components/Sidebar";
 import { TaskManagerModal } from "./components/TaskManagerModal";
 import { TitleBar } from "./components/TitleBar";
-import { UrlBar } from "./components/UrlBar";
 import { WebViewport } from "./components/WebViewport";
-import { BrowserTab, TabSpace } from "./types";
+import { AIChatFeature, AIProvider, BrowserTab, TabSpace } from "./types";
 
 const SUSPEND_AFTER_MS = 5 * 60 * 1000;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
@@ -92,6 +91,50 @@ function normalizeAddress(input: string): string {
   return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
 }
 
+function parseAddressAI(rawInput: string): { query: string; providerOverride?: AIProvider; label: string } | null {
+  const raw = rawInput.trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (raw.startsWith(">")) {
+    const query = raw.replace(/^>\s*/, "").trim();
+    return query ? { query, label: "AI" } : null;
+  }
+
+  if (/^ask:/i.test(raw)) {
+    const query = raw.replace(/^ask:\s*/i, "").trim();
+    return query ? { query, label: "AI" } : null;
+  }
+
+  if (!raw.startsWith("@")) {
+    return null;
+  }
+
+  const [prefix = "@", ...rest] = raw.split(/\s+/);
+  const lowerPrefix = prefix.toLowerCase();
+  const remaining = rest.join(" ").trim();
+
+  if (lowerPrefix === "@" || lowerPrefix === "@chat") {
+    return remaining ? { query: remaining, label: "AI" } : null;
+  }
+
+  if (lowerPrefix === "@gpt" || lowerPrefix === "@openai") {
+    return remaining ? { query: remaining, providerOverride: "openai", label: "AI (openai)" } : null;
+  }
+
+  if (lowerPrefix === "@claude" || lowerPrefix === "@anthropic") {
+    return remaining ? { query: remaining, providerOverride: "anthropic", label: "AI (claude)" } : null;
+  }
+
+  if (lowerPrefix === "@grok" || lowerPrefix === "@xai") {
+    return remaining ? { query: remaining, providerOverride: "xai", label: "AI (grok)" } : null;
+  }
+
+  const fallback = raw.slice(1).trim();
+  return fallback ? { query: fallback, label: "AI" } : null;
+}
+
 function rotateTabs(tabs: BrowserTab[], activeTabId: string, direction: 1 | -1): string {
   const index = tabs.findIndex((tab) => tab.id === activeTabId);
   if (index === -1 || tabs.length === 0) {
@@ -148,13 +191,13 @@ function loadInitialSession(): AppSession {
 
     const parsed = JSON.parse(raw) as Partial<AppSession>;
     const spaces = parsed.spaces?.length ? parsed.spaces : fallbackSpaces;
-      const defaultSpaceId = spaces[0]?.id ?? firstSpaceId;
-      const tabs = parsed.tabs?.length
-        ? parsed.tabs.map((tab) => ({ ...tab, spaceId: tab.spaceId || defaultSpaceId }))
-        : [fallbackTab];
-      const activeTabId = tabs.some((tab) => tab.id === parsed.activeTabId)
-        ? parsed.activeTabId ?? tabs[0]?.id ?? fallbackTab.id
-        : tabs[0]?.id ?? fallbackTab.id;
+    const defaultSpaceId = spaces[0]?.id ?? firstSpaceId;
+    const tabs = parsed.tabs?.length
+      ? parsed.tabs.map((tab) => ({ ...tab, spaceId: tab.spaceId || defaultSpaceId }))
+      : [fallbackTab];
+    const activeTabId = tabs.some((tab) => tab.id === parsed.activeTabId)
+      ? parsed.activeTabId ?? tabs[0]?.id ?? fallbackTab.id
+      : tabs[0]?.id ?? fallbackTab.id;
 
     return {
       tabs,
@@ -190,11 +233,11 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskManagerOpen, setTaskManagerOpen] = useState(false);
   const [suspensionEnabled, setSuspensionEnabled] = useState(initialSession.suspensionEnabled);
-  const [inlineAI, setInlineAI] = useState<{ requestId: string; text: string; loading: boolean } | null>(null);
+  const [inlineAI, setInlineAI] = useState<{ requestId: string; text: string; loading: boolean; label: string } | null>(null);
   const [queuedPrompt, setQueuedPrompt] = useState<{
     id: string;
     text: string;
-    feature?: "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search";
+    feature?: AIChatFeature;
   } | null>(null);
   const [pageIntel, setPageIntel] = useState<Record<string, PageIntel>>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -220,7 +263,9 @@ export function App() {
     messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
     maxTokens?: number;
     temperature?: number;
-    feature?: "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search";
+    feature?: AIChatFeature;
+    providerOverride?: AIProvider;
+    modelOverride?: string;
   }) => {
     const start = await window.lumen.ai.startChat(request);
 
@@ -628,19 +673,17 @@ export function App() {
 
   const handleNavigate = async () => {
     const raw = urlValue.trim();
+    const aiQuery = parseAddressAI(raw);
 
-    if (raw.startsWith(">") || raw.toLowerCase().startsWith("ask:")) {
-      const query = raw.replace(/^>\s*/, "").replace(/^ask:\s*/i, "").trim();
-
-      if (!query) {
-        return;
-      }
+    if (aiQuery) {
+      const { query, providerOverride, label } = aiQuery;
 
       try {
         const response = await window.lumen.ai.startChat({
           conversationId: "url-bar",
           feature: "url_bar",
           maxTokens: 300,
+          providerOverride,
           messages: [
             {
               role: "user",
@@ -650,12 +693,13 @@ export function App() {
         });
 
         inlineRequestIdRef.current = response.requestId;
-        setInlineAI({ requestId: response.requestId, text: "", loading: true });
+        setInlineAI({ requestId: response.requestId, text: "", loading: true, label });
       } catch (error) {
         setInlineAI({
           requestId: "error",
           text: error instanceof Error ? error.message : "AI request failed",
-          loading: false
+          loading: false,
+          label
         });
       }
 
@@ -890,6 +934,13 @@ export function App() {
         sidebarPinned={sidebarPinned}
         onToggleSidebarPin={() => setSidebarPinned((current) => !current)}
         onOpenCommandPalette={() => setPaletteOpen(true)}
+        urlValue={urlValue}
+        activeUrl={activeTab?.url ?? ""}
+        urlFocused={urlFocused}
+        onUrlFocusChange={setUrlFocused}
+        onUrlChange={setUrlValue}
+        onUrlSubmit={handleNavigate}
+        onRunPageIntelligence={() => void runPageIntelligence()}
       />
 
       <div className="shell">
@@ -924,16 +975,6 @@ export function App() {
         />
 
         <main className="content-area">
-          <UrlBar
-            value={urlValue}
-            activeUrl={activeTab?.url ?? ""}
-            focused={urlFocused}
-            onFocusChange={setUrlFocused}
-            onChange={setUrlValue}
-            onSubmit={handleNavigate}
-            onRunPageIntelligence={() => void runPageIntelligence()}
-          />
-
           {currentIntel && (
             <section className="page-intel-banner">
               <div className="page-intel-top">
@@ -951,7 +992,7 @@ export function App() {
 
           {inlineAI && (
             <section className="inline-ai-card">
-              <div className="inline-ai-head">AI response</div>
+              <div className="inline-ai-head">{inlineAI.label}</div>
               <p>{inlineAI.loading && !inlineAI.text ? "Thinking..." : inlineAI.text}</p>
             </section>
           )}

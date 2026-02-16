@@ -11,9 +11,9 @@ interface StreamController {
 }
 
 const DEFAULT_MODELS = {
-  openai: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o3-mini"],
-  anthropic: ["claude-sonnet-4-20250514", "claude-opus-4-0-20250514", "claude-haiku-4-5-20251001"],
-  xai: ["grok-3", "grok-3-mini"]
+  openai: ["gpt-5", "gpt-5-mini", "gpt-4.1", "o3", "o4-mini", "gpt-4o"],
+  anthropic: ["claude-opus-4-1", "claude-sonnet-4", "claude-opus-4-0", "claude-haiku-4-5"],
+  xai: ["grok-4", "grok-3", "grok-3-mini"]
 } as const;
 
 const MAX_CONCURRENT_STREAMS = 2;
@@ -136,10 +136,13 @@ export function registerAIIpc(mainWindow: BrowserWindow): void {
 
   ipcMain.handle("ai:start-chat", async (_, request: ChatRequest) => {
     const settings = settingsStore.read();
-    const apiKey = secureStorage.getAPIKey(settings.ai.provider);
+    const provider = request.providerOverride ?? settings.ai.provider;
+    const modelOverride = request.modelOverride?.trim();
+    const model = modelOverride && modelOverride.length > 0 ? modelOverride : settings.ai.model;
+    const apiKey = secureStorage.getAPIKey(provider);
 
     if (!apiKey) {
-      throw new Error("No API key configured");
+      throw new Error(`No API key configured for ${provider}`);
     }
 
     if (settings.usage.estimatedCostUsd >= settings.ai.monthlyBudgetUsd) {
@@ -154,9 +157,15 @@ export function registerAIIpc(mainWindow: BrowserWindow): void {
       const timer = setTimeout(() => abortController.abort(), REQUEST_TIMEOUT_MS);
 
       try {
+        const requestSettings = {
+          ...settings.ai,
+          provider,
+          model
+        };
+
         const result = await aiService.streamChat(
           apiKey,
-          settings.ai,
+          requestSettings,
           request,
           (token) => {
             mainWindow.webContents.send("ai:stream", { requestId, token, done: false });

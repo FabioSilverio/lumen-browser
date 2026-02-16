@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 import { BrowserTab, LumenMetrics } from "../types";
 
 interface TaskManagerProps {
@@ -43,7 +44,7 @@ export function TaskManagerModal({ open, tabs, onClose }: TaskManagerProps) {
       <section className="task-manager" onClick={(event) => event.stopPropagation()}>
         <div className="task-header">
           <h2>Task Manager</h2>
-          <button className="icon-button" onClick={onClose}>?</button>
+          <button className="icon-button" onClick={onClose}><X size={14} strokeWidth={1.8} /></button>
         </div>
 
         <div className="task-summary">

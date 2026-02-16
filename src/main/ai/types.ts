@@ -1,4 +1,5 @@
 export type AIProvider = "openai" | "anthropic" | "xai";
+export type AIChatFeature = "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search";
 
 export interface AISettings {
   provider: AIProvider;
@@ -26,7 +27,9 @@ export interface ChatRequest {
   messages: ChatMessage[];
   maxTokens?: number;
   temperature?: number;
-  feature?: "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search";
+  feature?: AIChatFeature;
+  providerOverride?: AIProvider;
+  modelOverride?: string;
 }
 
 export interface ChatUsage {

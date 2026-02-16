@@ -10,14 +10,23 @@ interface CostTable {
 }
 
 const ESTIMATED_COSTS: Record<string, CostTable> = {
+  "gpt-5": { promptPerMTok: 5, completionPerMTok: 15 },
+  "gpt-5-mini": { promptPerMTok: 0.25, completionPerMTok: 1.2 },
+  "o3": { promptPerMTok: 2, completionPerMTok: 8 },
+  "o4-mini": { promptPerMTok: 0.4, completionPerMTok: 1.6 },
   "gpt-4o": { promptPerMTok: 5, completionPerMTok: 15 },
   "gpt-4o-mini": { promptPerMTok: 0.15, completionPerMTok: 0.6 },
   "gpt-4.1": { promptPerMTok: 2, completionPerMTok: 8 },
   "gpt-4.1-mini": { promptPerMTok: 0.4, completionPerMTok: 1.6 },
   "o3-mini": { promptPerMTok: 1.1, completionPerMTok: 4.4 },
+  "claude-opus-4-1": { promptPerMTok: 15, completionPerMTok: 75 },
+  "claude-sonnet-4": { promptPerMTok: 3, completionPerMTok: 15 },
+  "claude-opus-4-0": { promptPerMTok: 15, completionPerMTok: 75 },
+  "claude-haiku-4-5": { promptPerMTok: 1, completionPerMTok: 5 },
   "claude-sonnet-4-20250514": { promptPerMTok: 3, completionPerMTok: 15 },
   "claude-opus-4-0-20250514": { promptPerMTok: 15, completionPerMTok: 75 },
   "claude-haiku-4-5-20251001": { promptPerMTok: 1, completionPerMTok: 5 },
+  "grok-4": { promptPerMTok: 6, completionPerMTok: 18 },
   "grok-3": { promptPerMTok: 5, completionPerMTok: 15 },
   "grok-3-mini": { promptPerMTok: 0.3, completionPerMTok: 0.7 }
 };

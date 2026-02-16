@@ -1,14 +1,4 @@
-﻿import {
-  Globe,
-  Moon,
-  Pin,
-  PinOff,
-  Plus,
-  Settings2,
-  Sparkles,
-  FolderPlus,
-  X
-} from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, FolderPlus, Globe2, MoonStar, Pin, PinOff, Plus, Settings2, X } from "lucide-react";
 import { BrowserTab, TabSpace } from "../types";
 
 interface SidebarProps {
@@ -69,15 +59,16 @@ function TabItem({
       onClick={onSelect}
       title={tab.title}
     >
-      <span className="tab-favicon">
+      <span className="tab-favicon" aria-hidden="true">
         {tab.favicon ? (
-          <img src={tab.favicon} alt="favicon" loading="lazy" />
+          <img src={tab.favicon} alt="" />
         ) : tab.suspended ? (
-          <Moon size={14} />
+          <MoonStar size={12} strokeWidth={1.9} />
         ) : (
-          <Globe size={14} />
+          <Globe2 size={13} strokeWidth={1.8} />
         )}
       </span>
+
       {expanded && (
         <>
           <span className="tab-title">{tab.title}</span>
@@ -90,7 +81,7 @@ function TabItem({
               }}
               title={tab.pinned ? "Unpin" : "Pin"}
             >
-              {tab.pinned ? <PinOff size={12} /> : <Pin size={12} />}
+              {tab.pinned ? <PinOff size={11} strokeWidth={1.8} /> : <Pin size={11} strokeWidth={1.8} />}
             </button>
             <button
               className="tab-mini"
@@ -100,7 +91,7 @@ function TabItem({
               }}
               title="Close tab"
             >
-              <X size={12} />
+              <X size={11} strokeWidth={2} />
             </button>
           </div>
         </>
@@ -180,6 +171,9 @@ export function Sidebar({
                   onClick={() => onToggleSpaceCollapsed(space.id)}
                   title={space.name}
                 >
+                  {expanded ? (
+                    space.collapsed ? <ChevronRight size={12} strokeWidth={2} /> : <ChevronDown size={12} strokeWidth={2} />
+                  ) : null}
                   <span className="space-dot" style={{ backgroundColor: space.color }} />
                   {expanded ? <span className="space-name">{space.name}</span> : null}
                   {expanded ? <span className="space-count">{spaceTabs.length}</span> : null}
@@ -202,7 +196,8 @@ export function Sidebar({
 
                     {expanded && (
                       <button className="space-add-tab" onClick={() => onNewTab(space.id)}>
-                        + New tab in {space.name}
+                        <Plus size={12} strokeWidth={2} />
+                        <span>New tab in {space.name}</span>
                       </button>
                     )}
                   </div>
@@ -215,19 +210,19 @@ export function Sidebar({
 
       <div className="sidebar-footer">
         <button className="icon-button" onClick={() => onNewTab()} title="New tab (Ctrl+T)">
-          <Plus size={15} />
+          <Plus size={14} strokeWidth={2} />
         </button>
         <button className="icon-button" onClick={onAddSpace} title="Add space">
-          <FolderPlus size={15} />
+          <FolderPlus size={14} strokeWidth={1.8} />
         </button>
         <button className="icon-button" onClick={onOpenAI} title="AI panel (Ctrl+Shift+A)">
-          <Sparkles size={15} />
+          <Bot size={14} strokeWidth={1.8} />
         </button>
         <button className="icon-button" onClick={onToggleSidebarPin} title={pinned ? "Unpin sidebar" : "Pin sidebar"}>
-          {pinned ? <PinOff size={15} /> : <Pin size={15} />}
+          {pinned ? <PinOff size={13} strokeWidth={1.8} /> : <Pin size={13} strokeWidth={1.8} />}
         </button>
         <button className="icon-button" onClick={onOpenSettings} title="Settings">
-          <Settings2 size={15} />
+          <Settings2 size={14} strokeWidth={1.8} />
         </button>
       </div>
     </aside>
