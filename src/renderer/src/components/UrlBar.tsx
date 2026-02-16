@@ -11,6 +11,7 @@ interface UrlBarProps {
   onChange: (value: string) => void;
   onAcceptSuggestion: (value: string) => void;
   onSubmit: () => void;
+  intelligenceLoading?: boolean;
   onRunPageIntelligence: () => void;
   compact?: boolean;
 }
@@ -42,6 +43,7 @@ export function UrlBar({
   onChange,
   onAcceptSuggestion,
   onSubmit,
+  intelligenceLoading = false,
   onRunPageIntelligence,
   compact = false
 }: UrlBarProps) {
@@ -188,7 +190,13 @@ export function UrlBar({
           spellCheck={false}
           autoComplete="off"
         />
-        <button type="button" className="url-intelligence" onClick={onRunPageIntelligence} title="Page intelligence">
+        <button
+          type="button"
+          className={`url-intelligence ${intelligenceLoading ? "loading" : ""}`}
+          onClick={onRunPageIntelligence}
+          title={intelligenceLoading ? "Analyzing page..." : "Page intelligence"}
+          disabled={intelligenceLoading}
+        >
           <Sparkles size={13} strokeWidth={1.8} />
         </button>
       </form>

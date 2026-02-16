@@ -28,6 +28,7 @@ interface TitleBarProps {
   onUrlChange: (value: string) => void;
   onUrlAcceptSuggestion: (value: string) => void;
   onUrlSubmit: () => void;
+  pageIntelligenceLoading: boolean;
   onRunPageIntelligence: () => void;
 }
 
@@ -56,6 +57,7 @@ export function TitleBar({
   onUrlChange,
   onUrlAcceptSuggestion,
   onUrlSubmit,
+  pageIntelligenceLoading,
   onRunPageIntelligence
 }: TitleBarProps) {
   const [maximized, setMaximized] = useState(false);
@@ -88,10 +90,8 @@ export function TitleBar({
             +
           </button>
         </div>
-      </div>
 
-      <div className="title-center no-drag">
-        <div className="nav-controls">
+        <div className="nav-controls no-drag">
           <button className="icon-button" onClick={onGoBack} disabled={!canGoBack} title="Back">
             <ChevronLeft size={14} strokeWidth={1.9} />
           </button>
@@ -110,6 +110,9 @@ export function TitleBar({
             <Download size={13} strokeWidth={1.9} />
           </button>
         </div>
+      </div>
+
+      <div className="title-center no-drag">
         <UrlBar
           compact
           dragTabId={activeTabId}
@@ -121,6 +124,7 @@ export function TitleBar({
           onChange={onUrlChange}
           onAcceptSuggestion={onUrlAcceptSuggestion}
           onSubmit={onUrlSubmit}
+          intelligenceLoading={pageIntelligenceLoading}
           onRunPageIntelligence={onRunPageIntelligence}
         />
       </div>

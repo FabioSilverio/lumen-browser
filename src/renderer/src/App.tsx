@@ -503,6 +503,7 @@ export function App() {
   const [profileGateOpen, setProfileGateOpen] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
+  const [pageIntelLoading, setPageIntelLoading] = useState(false);
 
   const hoverTimerRef = useRef<number | null>(null);
   const webviewRef = useRef<Electron.WebviewTag | null>(null);
@@ -578,6 +579,9 @@ export function App() {
   }, [activeTab]);
 
   const runPageIntelligence = useCallback(async () => {
+    if (pageIntelLoading) {
+      return;
+    }
     if (!activeTab) {
       return;
     }
@@ -586,15 +590,20 @@ export function App() {
       return;
     }
 
+    setPageIntelLoading(true);
+    addToast("Analyzing page...");
+
     const context = await extractPageContext();
     if (!context) {
       addToast("Unable to read the current page.");
+      setPageIntelLoading(false);
       return;
     }
 
     const wordCount = context.text.split(/\s+/).filter(Boolean).length;
     const readingTimeMin = Math.max(1, Math.round(wordCount / 220));
     const topics = deriveTopics(context.text);
+    const localSummary = context.text.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ").slice(0, 320) || "No summary available.";
 
     const cacheKey = `${simpleHash(context.url)}:${simpleHash(context.text.slice(0, 2000))}`;
 
@@ -606,6 +615,16 @@ export function App() {
         if (cached) {
           setPageIntel((prev) => ({ ...prev, [activeTab.id]: cached }));
         addToast("Loaded cached summary.");
+        setPageIntelLoading(false);
+        return;
+      }
+
+      const config = await window.lumen.ai.getConfig();
+      if (!config.hasApiKey) {
+        const intel = { summary: localSummary, readingTimeMin, topics };
+        setPageIntel((prev) => ({ ...prev, [activeTab.id]: intel }));
+        addToast("Local summary ready (AI key not configured).");
+        setPageIntelLoading(false);
         return;
       }
 
@@ -630,14 +649,16 @@ export function App() {
       setPageIntel((prev) => ({
         ...prev,
         [activeTab.id]: {
-          summary: error instanceof Error ? error.message : "AI summary failed.",
+          summary: localSummary,
           readingTimeMin,
           topics
         }
       }));
-      addToast("Page intelligence failed.");
+      addToast(error instanceof Error ? `AI summary failed, local summary used: ${error.message}` : "AI summary failed, local summary used.");
+    } finally {
+      setPageIntelLoading(false);
     }
-  }, [activeTab, addToast, extractPageContext, requestAIText]);
+  }, [activeTab, addToast, extractPageContext, requestAIText, pageIntelLoading]);
 
   useEffect(() => {
     if (activeTab) {
@@ -1545,6 +1566,7 @@ export function App() {
         onUrlChange={setUrlValue}
         onUrlAcceptSuggestion={handleAcceptAddressSuggestion}
         onUrlSubmit={handleNavigate}
+        pageIntelligenceLoading={pageIntelLoading}
         onRunPageIntelligence={() => void runPageIntelligence()}
       />
 
