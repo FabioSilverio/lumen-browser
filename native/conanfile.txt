@@ -1,0 +1,9 @@
+[requires]
+mimalloc/2.1.7
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[layout]
+cmake_layout

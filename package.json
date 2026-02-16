@@ -1,0 +1,35 @@
+{
+  "name": "lumen-browser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lumen - minimalist AI-powered Chromium browser shell for Windows",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:main\" \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:main": "tsup src/main/main.ts src/main/preload.ts --format cjs --out-dir dist/main --target node20 --sourcemap --watch --clean",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on tcp:5173 file:dist/main/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "build": "npm run build:main && npm run build:renderer",
+    "build:main": "tsup src/main/main.ts src/main/preload.ts --format cjs --out-dir dist/main --target node20 --sourcemap --clean",
+    "build:renderer": "vite build",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "wait-on": "^8.0.1"
+  }
+}
