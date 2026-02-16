@@ -64,6 +64,7 @@ export function AIPanel({
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const requestMap = useRef<Map<string, string>>(new Map());
+  const handledQueuedPromptId = useRef<string | null>(null);
 
   const loadConfig = async () => {
     const config = await window.lumen.ai.getConfig();
@@ -201,10 +202,33 @@ export function AIPanel({
       return;
     }
 
+    if (handledQueuedPromptId.current === queuedPrompt.id) {
+      return;
+    }
+
+    if (!settings) {
+      return;
+    }
+
+    if (!hasApiKey) {
+      handledQueuedPromptId.current = queuedPrompt.id;
+      setConnectionMessage("No API key configured. Open settings (gear icon) to connect AI.");
+      onQueuedPromptHandled();
+      return;
+    }
+
+    if (budget.reached) {
+      handledQueuedPromptId.current = queuedPrompt.id;
+      setConnectionMessage("Monthly budget reached. AI is disabled until budget changes.");
+      onQueuedPromptHandled();
+      return;
+    }
+
+    handledQueuedPromptId.current = queuedPrompt.id;
     void sendPrompt(queuedPrompt.text, queuedPrompt.feature ?? "context_menu").finally(() => {
       onQueuedPromptHandled();
     });
-  }, [queuedPrompt, open]);
+  }, [queuedPrompt, open, settings, hasApiKey, budget.reached]);
 
   const canSend = useMemo(() => {
     return Boolean(settings && hasApiKey && input.trim() && !isSending && !budget.reached);
