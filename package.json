@@ -1,6 +1,6 @@
 {
   "name": "lumen-browser",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Lumen - minimalist AI-powered Chromium browser shell for Windows",
   "author": "FabioSilverio",
