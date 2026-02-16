@@ -58,6 +58,10 @@ export function formatProviderError(provider: ProviderName, status: number, deta
     return `${provider} rate limit reached. Wait a moment and try again.`;
   }
 
+  if (provider === "OpenClaw" && status === 405) {
+    return "OpenClaw returned 405. Usually this means the endpoint path is wrong or chatCompletions is disabled. Use /v1/chat/completions and enable gateway.http.endpoints.chatCompletions.enabled=true.";
+  }
+
   if (status >= 500) {
     return `${provider} is temporarily unavailable (${status}). Please retry shortly.`;
   }

@@ -300,6 +300,12 @@ export function AIPanel({
             />
           </label>
 
+          {settings.provider === "openclaw" ? (
+            <p className="helper-text">
+              OpenClaw base URL comes from `OPENCLAW_BASE_URL` (default `http://127.0.0.1:18789`).
+            </p>
+          ) : null}
+
           <label>
             Monthly budget (USD)
             <input
