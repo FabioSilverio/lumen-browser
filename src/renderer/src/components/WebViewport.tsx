@@ -8,6 +8,7 @@ interface WebViewportProps {
   onTitleChange: (title: string) => void;
   onUrlChange: (url: string) => void;
   onFaviconChange: (favicon: string) => void;
+  onNavigationStateChange: (state: { canGoBack: boolean; canGoForward: boolean }) => void;
   onRestoreTab: () => void;
   onSendAIMessage: (tabId: string, text: string) => Promise<void>;
   onStartBrowsing: (url: string) => void;
@@ -20,6 +21,7 @@ export function WebViewport({
   onTitleChange,
   onUrlChange,
   onFaviconChange,
+  onNavigationStateChange,
   onRestoreTab,
   onSendAIMessage,
   onStartBrowsing
@@ -40,6 +42,13 @@ export function WebViewport({
       return;
     }
 
+    const emitNavState = () => {
+      onNavigationStateChange({
+        canGoBack: webview.canGoBack(),
+        canGoForward: webview.canGoForward()
+      });
+    };
+
     const handleTitle = (event: Electron.PageTitleUpdatedEvent) => {
       if (event.title) {
         onTitleChange(event.title);
@@ -50,12 +59,14 @@ export function WebViewport({
       if (event.url) {
         onUrlChange(event.url);
       }
+      emitNavState();
     };
 
     const handleInPageNavigate = (event: Electron.DidNavigateInPageEvent) => {
       if (event.url) {
         onUrlChange(event.url);
       }
+      emitNavState();
     };
 
     const handleFavicon = (event: Electron.PageFaviconUpdatedEvent) => {
@@ -64,18 +75,25 @@ export function WebViewport({
       }
     };
 
+    const handleDidStopLoading = () => {
+      emitNavState();
+    };
+
     webview.addEventListener("page-title-updated", handleTitle);
     webview.addEventListener("did-navigate", handleNavigate);
     webview.addEventListener("did-navigate-in-page", handleInPageNavigate);
     webview.addEventListener("page-favicon-updated", handleFavicon);
+    webview.addEventListener("did-stop-loading", handleDidStopLoading);
+    emitNavState();
 
     return () => {
       webview.removeEventListener("page-title-updated", handleTitle);
       webview.removeEventListener("did-navigate", handleNavigate);
       webview.removeEventListener("did-navigate-in-page", handleInPageNavigate);
       webview.removeEventListener("page-favicon-updated", handleFavicon);
+      webview.removeEventListener("did-stop-loading", handleDidStopLoading);
     };
-  }, [tab?.id, tab?.url, tab?.suspended, tab?.kind, onTitleChange, onUrlChange, onFaviconChange, webviewRef]);
+  }, [tab?.id, tab?.url, tab?.suspended, tab?.kind, onTitleChange, onUrlChange, onFaviconChange, onNavigationStateChange, webviewRef]);
 
   if (!tab) {
     return (

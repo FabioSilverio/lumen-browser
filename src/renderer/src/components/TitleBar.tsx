@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Command, Minus, PanelLeft, Square, SquareStack, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Command, Minus, PanelLeft, RotateCw, Square, SquareStack, X } from "lucide-react";
 import { UrlBar } from "./UrlBar";
 import { BrowserProfile } from "../types";
 
@@ -12,6 +12,12 @@ interface TitleBarProps {
   onAddProfile: () => void;
   onToggleSidebarPin: () => void;
   onOpenCommandPalette: () => void;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  canRefresh: boolean;
+  onGoBack: () => void;
+  onGoForward: () => void;
+  onRefresh: () => void;
   urlValue: string;
   activeUrl: string;
   addressSuggestions: string[];
@@ -32,6 +38,12 @@ export function TitleBar({
   onAddProfile,
   onToggleSidebarPin,
   onOpenCommandPalette,
+  canGoBack,
+  canGoForward,
+  canRefresh,
+  onGoBack,
+  onGoForward,
+  onRefresh,
   urlValue,
   activeUrl,
   addressSuggestions,
@@ -75,6 +87,17 @@ export function TitleBar({
       </div>
 
       <div className="title-center no-drag">
+        <div className="nav-controls">
+          <button className="icon-button" onClick={onGoBack} disabled={!canGoBack} title="Back">
+            <ChevronLeft size={14} strokeWidth={1.9} />
+          </button>
+          <button className="icon-button" onClick={onGoForward} disabled={!canGoForward} title="Forward">
+            <ChevronRight size={14} strokeWidth={1.9} />
+          </button>
+          <button className="icon-button" onClick={onRefresh} disabled={!canRefresh} title="Refresh">
+            <RotateCw size={13} strokeWidth={1.9} />
+          </button>
+        </div>
         <UrlBar
           compact
           dragTabId={activeTabId}

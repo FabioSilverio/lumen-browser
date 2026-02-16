@@ -40,6 +40,12 @@ const api = {
       ipcRenderer.on("browser:new-tab-requested", wrapped);
       return () => ipcRenderer.removeListener("browser:new-tab-requested", wrapped);
     }
+  },
+  extensions: {
+    activateProfile: (profileId: string) => ipcRenderer.invoke("extensions:activate-profile", profileId),
+    list: (profileId: string) => ipcRenderer.invoke("extensions:list", profileId),
+    pickAndInstall: (profileId: string) => ipcRenderer.invoke("extensions:pick-and-install", profileId),
+    remove: (profileId: string, extensionId: string) => ipcRenderer.invoke("extensions:remove", { profileId, extensionId })
   }
 };
 

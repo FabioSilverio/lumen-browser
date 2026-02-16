@@ -1,10 +1,11 @@
 import { MouseEvent as ReactMouseEvent, useState } from "react";
-import { Bot, ChevronDown, ChevronRight, FolderPlus, Globe2, MoonStar, Pin, PinOff, Plus, Settings2, X } from "lucide-react";
-import { BrowserTab, TabSpace } from "../types";
+import { Bot, ChevronDown, ChevronRight, Folder, FolderPlus, Globe2, MoonStar, Pin, PinOff, Plus, Settings2, X } from "lucide-react";
+import { BrowserTab, TabFolder, TabSpace } from "../types";
 
 interface SidebarProps {
   tabs: BrowserTab[];
   spaces: TabSpace[];
+  folders: TabFolder[];
   activeTabId: string;
   expanded: boolean;
   sidebarWidth: number;
@@ -16,7 +17,10 @@ interface SidebarProps {
   onTogglePinnedTab: (id: string) => void;
   onReorderTab: (sourceId: string, targetId: string) => void;
   onMoveTabToSpace: (tabId: string, spaceId: string) => void;
+  onMoveTabToFolder: (tabId: string, folderId: string | null) => void;
   onToggleSpaceCollapsed: (spaceId: string) => void;
+  onToggleFolderCollapsed: (folderId: string) => void;
+  onAddFolder: (spaceId: string) => void;
   onAddSpace: () => void;
   onToggleSidebarPin: () => void;
   onResizeWidth: (width: number) => void;
@@ -106,6 +110,7 @@ function TabItem({
 export function Sidebar({
   tabs,
   spaces,
+  folders,
   activeTabId,
   expanded,
   sidebarWidth,
@@ -117,7 +122,10 @@ export function Sidebar({
   onTogglePinnedTab,
   onReorderTab,
   onMoveTabToSpace,
+  onMoveTabToFolder,
   onToggleSpaceCollapsed,
+  onToggleFolderCollapsed,
+  onAddFolder,
   onAddSpace,
   onToggleSidebarPin,
   onResizeWidth,
@@ -126,6 +134,7 @@ export function Sidebar({
 }: SidebarProps) {
   const pinnedTabs = tabs.filter((tab) => tab.pinned);
   const [dragTargetSpaceId, setDragTargetSpaceId] = useState<string | null>(null);
+  const [dragTargetFolderId, setDragTargetFolderId] = useState<string | null>(null);
 
   const handleResizeStart = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -181,6 +190,8 @@ export function Sidebar({
         <div className="spaces-list">
           {spaces.map((space) => {
             const spaceTabs = tabs.filter((tab) => !tab.pinned && tab.spaceId === space.id);
+            const spaceFolders = folders.filter((folder) => folder.spaceId === space.id);
+            const looseTabs = spaceTabs.filter((tab) => !tab.folderId);
             return (
               <section
                 className={`space-group ${dragTargetSpaceId === space.id ? "drag-target" : ""}`}
@@ -199,6 +210,7 @@ export function Sidebar({
                   const sourceId = event.dataTransfer.getData("text/tab-id");
                   if (sourceId) {
                     onMoveTabToSpace(sourceId, space.id);
+                    onMoveTabToFolder(sourceId, null);
                   }
                   setDragTargetSpaceId(null);
                 }}
@@ -216,6 +228,7 @@ export function Sidebar({
                     const sourceId = event.dataTransfer.getData("text/tab-id");
                     if (sourceId) {
                       onMoveTabToSpace(sourceId, space.id);
+                      onMoveTabToFolder(sourceId, null);
                     }
                     setDragTargetSpaceId(null);
                   }}
@@ -244,11 +257,64 @@ export function Sidebar({
                       const sourceId = event.dataTransfer.getData("text/tab-id");
                       if (sourceId) {
                         onMoveTabToSpace(sourceId, space.id);
+                        onMoveTabToFolder(sourceId, null);
                       }
                       setDragTargetSpaceId(null);
                     }}
                   >
-                    {spaceTabs.map((tab) => (
+                    {spaceFolders.map((folder) => {
+                      const folderTabs = spaceTabs.filter((tab) => tab.folderId === folder.id);
+                      return (
+                        <section
+                          key={folder.id}
+                          className={`tab-folder ${dragTargetFolderId === folder.id ? "drag-target" : ""}`}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                            setDragTargetFolderId(folder.id);
+                          }}
+                          onDragLeave={() => {
+                            setDragTargetFolderId((current) => (current === folder.id ? null : current));
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const sourceId = event.dataTransfer.getData("text/tab-id");
+                            if (sourceId) {
+                              onMoveTabToSpace(sourceId, space.id);
+                              onMoveTabToFolder(sourceId, folder.id);
+                            }
+                            setDragTargetFolderId(null);
+                          }}
+                        >
+                          <button className="folder-header" onClick={() => onToggleFolderCollapsed(folder.id)} title={folder.name}>
+                            {folder.collapsed ? <ChevronRight size={11} strokeWidth={2} /> : <ChevronDown size={11} strokeWidth={2} />}
+                            <Folder size={12} strokeWidth={1.8} />
+                            <span className="folder-name">{folder.name}</span>
+                            <span className="folder-count">{folderTabs.length}</span>
+                          </button>
+
+                          {!folder.collapsed ? (
+                            <div className="tabs-list folder-tabs">
+                              {folderTabs.map((tab) => (
+                                <TabItem
+                                  key={tab.id}
+                                  tab={tab}
+                                  active={tab.id === activeTabId}
+                                  expanded={expanded}
+                                  onSelect={() => onSelectTab(tab.id)}
+                                  onClose={() => onCloseTab(tab.id)}
+                                  onTogglePin={() => onTogglePinnedTab(tab.id)}
+                                  onReorder={onReorderTab}
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+                        </section>
+                      );
+                    })}
+
+                    {looseTabs.map((tab) => (
                       <TabItem
                         key={tab.id}
                         tab={tab}
@@ -262,10 +328,16 @@ export function Sidebar({
                     ))}
 
                     {expanded && (
-                      <button className="space-add-tab" onClick={() => onNewTab(space.id)}>
-                        <Plus size={12} strokeWidth={2} />
-                        <span>New tab in {space.name}</span>
-                      </button>
+                      <div className="space-actions">
+                        <button className="space-add-tab" onClick={() => onNewTab(space.id)}>
+                          <Plus size={12} strokeWidth={2} />
+                          <span>New tab in {space.name}</span>
+                        </button>
+                        <button className="space-add-tab" onClick={() => onAddFolder(space.id)}>
+                          <FolderPlus size={12} strokeWidth={1.9} />
+                          <span>New folder</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}

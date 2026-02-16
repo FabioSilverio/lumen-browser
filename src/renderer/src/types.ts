@@ -33,6 +33,7 @@ export interface BrowserTab {
   lastActiveAt: number;
   createdAt: number;
   spaceId: string;
+  folderId?: string;
   aiQuery?: string;
   aiProviderLabel?: string;
   aiResponse?: string;
@@ -51,10 +52,25 @@ export interface TabSpace {
   collapsed: boolean;
 }
 
+export interface TabFolder {
+  id: string;
+  name: string;
+  spaceId: string;
+  collapsed: boolean;
+}
+
 export interface BrowserProfile {
   id: string;
   name: string;
   createdAt: number;
+}
+
+export interface InstalledExtension {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  path: string;
 }
 
 export interface LumenMetrics {
@@ -140,6 +156,12 @@ declare global {
       browser: {
         getAddressSuggestions: (query: string) => Promise<string[]>;
         onNewTabRequested: (listener: (payload: { url: string }) => void) => () => void;
+      };
+      extensions: {
+        activateProfile: (profileId: string) => Promise<{ loaded: number }>;
+        list: (profileId: string) => Promise<InstalledExtension[]>;
+        pickAndInstall: (profileId: string) => Promise<InstalledExtension[]>;
+        remove: (profileId: string, extensionId: string) => Promise<InstalledExtension[]>;
       };
     };
   }

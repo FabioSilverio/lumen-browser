@@ -11,6 +11,7 @@ interface PromptSeed {
 interface AIPanelProps {
   open: boolean;
   intent: "chat" | "settings";
+  profileId: string;
   activeTab: BrowserTab | undefined;
   queuedPrompt: PromptSeed | null;
   onQueuedPromptHandled: () => void;
@@ -42,6 +43,7 @@ const EMPTY_USAGE: AIUsage = {
 export function AIPanel({
   open,
   intent,
+  profileId,
   activeTab,
   queuedPrompt,
   onQueuedPromptHandled,
@@ -65,6 +67,7 @@ export function AIPanel({
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const requestMap = useRef<Map<string, string>>(new Map());
   const handledQueuedPromptId = useRef<string | null>(null);
+  const chatStorageKey = `lumen.ai.panel.chat.${profileId}`;
 
   const loadConfig = async () => {
     const config = await window.lumen.ai.getConfig();
@@ -82,6 +85,20 @@ export function AIPanel({
 
     void loadConfig();
   }, [open]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(chatStorageKey);
+      const parsed = raw ? (JSON.parse(raw) as ChatUIMessage[]) : [];
+      setMessages(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setMessages([]);
+    }
+  }, [chatStorageKey]);
+
+  useEffect(() => {
+    window.localStorage.setItem(chatStorageKey, JSON.stringify(messages));
+  }, [chatStorageKey, messages]);
 
   useEffect(() => {
     if (!open) {

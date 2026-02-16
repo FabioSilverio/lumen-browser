@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AIPanel } from "./components/AIPanel";
 import { CommandPalette } from "./components/CommandPalette";
+import { ExtensionsModal } from "./components/ExtensionsModal";
+import { ProfileGate } from "./components/ProfileGate";
 import { Sidebar } from "./components/Sidebar";
 import { TaskManagerModal } from "./components/TaskManagerModal";
 import { TitleBar } from "./components/TitleBar";
 import { WebViewport } from "./components/WebViewport";
-import { AIChatFeature, AIProvider, BrowserProfile, BrowserTab, TabSpace } from "./types";
+import { AIChatFeature, AIProvider, BrowserProfile, BrowserTab, TabFolder, TabSpace } from "./types";
 
 const SUSPEND_AFTER_MS = 5 * 60 * 1000;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
@@ -19,6 +21,7 @@ const SPACE_COLORS = ["#0a84ff", "#30d158", "#ff9f0a", "#ff375f", "#64d2ff", "#b
 interface ProfileSession {
   tabs: BrowserTab[];
   spaces: TabSpace[];
+  folders: TabFolder[];
   activeTabId: string;
   urlHistory: string[];
 }
@@ -86,6 +89,15 @@ function createTab(spaceId: string, url = "https://duckduckgo.com", title = "New
   };
 }
 
+function createFolder(spaceId: string, name = "Folder"): TabFolder {
+  return {
+    id: crypto.randomUUID(),
+    name,
+    spaceId,
+    collapsed: false
+  };
+}
+
 function createWelcomeTab(spaceId: string): BrowserTab {
   return {
     id: crypto.randomUUID(),
@@ -140,6 +152,7 @@ function defaultSession(): ProfileSession {
   return {
     tabs: [welcomeTab],
     spaces: [baseSpace],
+    folders: [],
     activeTabId: welcomeTab.id,
     urlHistory: []
   };
@@ -306,12 +319,14 @@ function normalizeSession(input: Partial<ProfileSession> | null | undefined): Pr
   }
 
   const spaces = input.spaces?.length ? input.spaces : fallback.spaces;
+  const folders = input.folders?.filter((folder) => spaces.some((space) => space.id === folder.spaceId)) ?? [];
   const defaultSpaceId = spaces[0]?.id ?? fallback.spaces[0]!.id;
   const tabs = input.tabs?.length
     ? input.tabs.map((tab) => ({
       ...tab,
       kind: tab.kind ?? "web",
-      spaceId: tab.spaceId || defaultSpaceId
+      spaceId: tab.spaceId || defaultSpaceId,
+      folderId: tab.folderId && folders.some((folder) => folder.id === tab.folderId) ? tab.folderId : undefined
     }))
     : fallback.tabs;
   const activeTabId = tabs.some((tab) => tab.id === input.activeTabId)
@@ -321,6 +336,7 @@ function normalizeSession(input: Partial<ProfileSession> | null | undefined): Pr
   return {
     tabs,
     spaces,
+    folders,
     activeTabId,
     urlHistory: input.urlHistory ?? []
   };
@@ -361,6 +377,7 @@ function loadBootstrap(): AppBootstrap {
       const legacy = JSON.parse(legacyRaw) as Partial<{
         tabs: BrowserTab[];
         spaces: TabSpace[];
+        folders: TabFolder[];
         activeTabId: string;
         theme: "light" | "dark";
         sidebarPinned: boolean;
@@ -378,6 +395,7 @@ function loadBootstrap(): AppBootstrap {
       const session = normalizeSession({
         tabs: legacy.tabs,
         spaces: legacy.spaces,
+        folders: legacy.folders,
         activeTabId: legacy.activeTabId
       });
 
@@ -441,6 +459,7 @@ export function App() {
   const bootstrap = loadBootstrap();
   const [tabs, setTabs] = useState<BrowserTab[]>(bootstrap.session.tabs);
   const [spaces, setSpaces] = useState<TabSpace[]>(bootstrap.session.spaces);
+  const [folders, setFolders] = useState<TabFolder[]>(bootstrap.session.folders);
   const [activeTabId, setActiveTabId] = useState<string>(bootstrap.session.activeTabId);
   const [urlHistory, setUrlHistory] = useState<string[]>(bootstrap.session.urlHistory);
   const [urlValue, setUrlValue] = useState("");
@@ -452,6 +471,7 @@ export function App() {
   const [aiPanelIntent, setAiPanelIntent] = useState<"chat" | "settings">("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskManagerOpen, setTaskManagerOpen] = useState(false);
+  const [extensionsModalOpen, setExtensionsModalOpen] = useState(false);
   const [suspensionEnabled, setSuspensionEnabled] = useState(bootstrap.global.suspensionEnabled);
   const [sidebarWidth, setSidebarWidth] = useState(bootstrap.global.sidebarWidth);
   const [profiles, setProfiles] = useState<BrowserProfile[]>(bootstrap.global.profiles);
@@ -465,6 +485,9 @@ export function App() {
   const [pageIntel, setPageIntel] = useState<Record<string, PageIntel>>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [memoryPressureRatio, setMemoryPressureRatio] = useState(0);
+  const [profileGateOpen, setProfileGateOpen] = useState(true);
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
 
   const hoverTimerRef = useRef<number | null>(null);
   const webviewRef = useRef<Electron.WebviewTag | null>(null);
@@ -612,6 +635,13 @@ export function App() {
   }, [activeTab?.id, activeTab?.url, activeTab?.kind]);
 
   useEffect(() => {
+    if (!activeTab || activeTab.kind !== "web" || activeTab.suspended) {
+      setCanGoBack(false);
+      setCanGoForward(false);
+    }
+  }, [activeTab?.id, activeTab?.kind, activeTab?.suspended]);
+
+  useEffect(() => {
     const query = urlValue.trim();
     if (!urlFocused || query.length < 2 || query.startsWith("@") || query.startsWith(">") || query.toLowerCase().startsWith("ask:")) {
       setProviderSuggestions([]);
@@ -649,11 +679,16 @@ export function App() {
     const session: ProfileSession = {
       tabs,
       spaces,
+      folders,
       activeTabId,
       urlHistory
     };
     window.localStorage.setItem(profileSessionKey(activeProfileId), JSON.stringify(session));
-  }, [tabs, spaces, activeTabId, urlHistory, activeProfileId]);
+  }, [tabs, spaces, folders, activeTabId, urlHistory, activeProfileId]);
+
+  useEffect(() => {
+    void window.lumen.extensions.activateProfile(activeProfileId);
+  }, [activeProfileId]);
 
   useEffect(() => {
     return window.lumen.ai.onStream((payload) => {
@@ -948,22 +983,25 @@ export function App() {
       return;
     }
 
-    const currentSession: ProfileSession = { tabs, spaces, activeTabId, urlHistory };
+    const currentSession: ProfileSession = { tabs, spaces, folders, activeTabId, urlHistory };
     window.localStorage.setItem(profileSessionKey(activeProfileId), JSON.stringify(currentSession));
 
     const nextSession = readProfileSession(profileId);
     setActiveProfileId(profileId);
     setTabs(nextSession.tabs);
     setSpaces(nextSession.spaces);
+    setFolders(nextSession.folders);
     setActiveTabId(nextSession.activeTabId);
     setUrlHistory(nextSession.urlHistory);
     setUrlFocused(false);
     setProviderSuggestions([]);
+    setCanGoBack(false);
+    setCanGoForward(false);
   };
 
-  const handleAddProfile = () => {
+  const handleAddProfile = (name?: string) => {
     const nextIndex = profiles.length + 1;
-    const profile = createProfile(`Profile ${nextIndex}`);
+    const profile = createProfile(name?.trim() || `Profile ${nextIndex}`);
     setProfiles((prev) => [...prev, profile]);
     const session = defaultSession();
     window.localStorage.setItem(profileSessionKey(profile.id), JSON.stringify(session));
@@ -1103,6 +1141,38 @@ export function App() {
 
   const handleAcceptAddressSuggestion = (value: string) => {
     navigateToAddress(value);
+  };
+
+  const moveTabToSpace = (tabId: string, spaceId: string) => {
+    setTabs((prev) =>
+      prev.map((tab) => {
+        if (tab.id !== tabId) {
+          return tab;
+        }
+        const nextFolderId = tab.folderId && folders.some((folder) => folder.id === tab.folderId && folder.spaceId === spaceId)
+          ? tab.folderId
+          : undefined;
+        return { ...tab, spaceId, folderId: nextFolderId };
+      })
+    );
+  };
+
+  const moveTabToFolder = (tabId: string, folderId: string | null) => {
+    setTabs((prev) =>
+      prev.map((tab) => {
+        if (tab.id !== tabId) {
+          return tab;
+        }
+        if (!folderId) {
+          return { ...tab, folderId: undefined };
+        }
+        const folder = folders.find((entry) => entry.id === folderId);
+        if (!folder) {
+          return tab;
+        }
+        return { ...tab, folderId: folder.id, spaceId: folder.spaceId };
+      })
+    );
   };
 
   async function handleSendAITabMessage(tabId: string, text: string): Promise<void> {
@@ -1347,6 +1417,9 @@ export function App() {
       case "Open task manager":
         setTaskManagerOpen(true);
         break;
+      case "Manage extensions":
+        setExtensionsModalOpen(true);
+        break;
       case "Toggle AI panel":
         setAiPanelIntent("chat");
         setAiOpen((current) => !current);
@@ -1384,6 +1457,31 @@ export function App() {
   const sidebarExpanded = sidebarPinned || sidebarPeek;
   const activeSpaceId = activeTab?.spaceId ?? spaces[0]?.id;
   const currentIntel = activeTab ? pageIntel[activeTab.id] : undefined;
+  const canRefresh = activeTab?.kind === "web" && !activeTab.suspended;
+
+  const handleGoBack = () => {
+    const webview = webviewRef.current;
+    if (!webview || !canGoBack) {
+      return;
+    }
+    webview.goBack();
+  };
+
+  const handleGoForward = () => {
+    const webview = webviewRef.current;
+    if (!webview || !canGoForward) {
+      return;
+    }
+    webview.goForward();
+  };
+
+  const handleRefresh = () => {
+    const webview = webviewRef.current;
+    if (!webview || !canRefresh) {
+      return;
+    }
+    webview.reload();
+  };
 
   return (
     <div className="app-root">
@@ -1396,6 +1494,12 @@ export function App() {
         onAddProfile={handleAddProfile}
         onToggleSidebarPin={() => setSidebarPinned((current) => !current)}
         onOpenCommandPalette={() => setPaletteOpen(true)}
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        canRefresh={Boolean(canRefresh)}
+        onGoBack={handleGoBack}
+        onGoForward={handleGoForward}
+        onRefresh={handleRefresh}
         urlValue={urlValue}
         activeUrl={activeTab?.kind === "web" ? activeTab.url : ""}
         addressSuggestions={addressSuggestions}
@@ -1411,6 +1515,7 @@ export function App() {
         <Sidebar
           tabs={tabs}
           spaces={spaces}
+          folders={folders}
           activeTabId={activeTabId}
           expanded={sidebarExpanded}
           sidebarWidth={sidebarWidth}
@@ -1421,7 +1526,8 @@ export function App() {
           onNewTab={handleNewTab}
           onTogglePinnedTab={(id) => updateTab(id, (tab) => ({ ...tab, pinned: !tab.pinned }))}
           onReorderTab={handleReorderTab}
-          onMoveTabToSpace={(tabId, spaceId) => updateTab(tabId, (tab) => ({ ...tab, spaceId }))}
+          onMoveTabToSpace={moveTabToSpace}
+          onMoveTabToFolder={moveTabToFolder}
           onToggleSpaceCollapsed={(spaceId) =>
             setSpaces((prev) =>
               prev.map((space) =>
@@ -1429,6 +1535,17 @@ export function App() {
               )
             )
           }
+          onToggleFolderCollapsed={(folderId) =>
+            setFolders((prev) =>
+              prev.map((folder) =>
+                folder.id === folderId ? { ...folder, collapsed: !folder.collapsed } : folder
+              )
+            )
+          }
+          onAddFolder={(spaceId) => {
+            const folderCount = folders.filter((folder) => folder.spaceId === spaceId).length + 1;
+            setFolders((prev) => [...prev, createFolder(spaceId, `Folder ${folderCount}`)]);
+          }}
           onAddSpace={() => {
             const name = `Space ${spaces.length + 1}`;
             const color = SPACE_COLORS[spaces.length % SPACE_COLORS.length];
@@ -1470,6 +1587,10 @@ export function App() {
             onTitleChange={(title) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, title }))}
             onUrlChange={(url) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, url }))}
             onFaviconChange={(favicon) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, favicon }))}
+            onNavigationStateChange={({ canGoBack: nextCanGoBack, canGoForward: nextCanGoForward }) => {
+              setCanGoBack(nextCanGoBack);
+              setCanGoForward(nextCanGoForward);
+            }}
             onSendAIMessage={handleSendAITabMessage}
             onStartBrowsing={(seedUrl) => {
               if (!activeTab) {
@@ -1484,6 +1605,7 @@ export function App() {
             <span>{suspensionEnabled ? "Auto-suspend on" : "Auto-suspend off"}</span>
             <span>{memoryPressureRatio >= 0.7 ? "High memory pressure" : "Memory stable"}</span>
             <span>Active space: {spaces.find((space) => space.id === activeSpaceId)?.name ?? "General"}</span>
+            <span>Security hardened</span>
             <span>{theme === "light" ? "Light" : "Dark"} theme</span>
           </footer>
         </main>
@@ -1491,6 +1613,7 @@ export function App() {
         <AIPanel
           open={aiOpen}
           intent={aiPanelIntent}
+          profileId={activeProfileId}
           activeTab={activeTab}
           queuedPrompt={queuedPrompt}
           onQueuedPromptHandled={() => setQueuedPrompt(null)}
@@ -1511,6 +1634,21 @@ export function App() {
         open={taskManagerOpen}
         tabs={tabs}
         onClose={() => setTaskManagerOpen(false)}
+      />
+
+      <ExtensionsModal
+        open={extensionsModalOpen}
+        profileId={activeProfileId}
+        onClose={() => setExtensionsModalOpen(false)}
+      />
+
+      <ProfileGate
+        open={profileGateOpen}
+        profiles={profiles}
+        activeProfileId={activeProfileId}
+        onSelectProfile={handleSwitchProfile}
+        onCreateProfile={handleAddProfile}
+        onContinue={() => setProfileGateOpen(false)}
       />
 
       <div className="toast-stack">

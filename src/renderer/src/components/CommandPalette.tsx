@@ -14,6 +14,7 @@ const COMMANDS = [
   "Toggle dark mode",
   "Suspend all tabs",
   "Open task manager",
+  "Manage extensions",
   "Toggle AI panel",
   "Suggest stale tabs",
   "Group tabs by topic",

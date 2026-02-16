@@ -4,6 +4,8 @@ import { registerWindowIpc } from "./ipc/window-controls";
 import { registerSystemIpc } from "./ipc/system";
 import { registerAIIpc } from "./ipc/ai";
 import { registerBrowserIpc } from "./ipc/browser";
+import { registerExtensionsIpc } from "./ipc/extensions";
+import { applyBrowserSecurity } from "./security";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
@@ -142,15 +144,18 @@ async function bootstrap(): Promise<void> {
   nativeTheme.themeSource = "light";
 
   const mainWindow = createMainWindow();
+  applyBrowserSecurity(mainWindow);
 
   registerWindowIpc(mainWindow);
   registerSystemIpc();
   registerBrowserIpc();
+  registerExtensionsIpc();
   registerAIIpc(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const window = createMainWindow();
+      applyBrowserSecurity(window);
       registerWindowIpc(window);
       registerAIIpc(window);
     }
