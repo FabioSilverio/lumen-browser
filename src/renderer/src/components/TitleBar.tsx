@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Command, Download, Minus, PanelLeft, RotateCw, Square, SquareStack, X } from "lucide-react";
 import { UrlBar } from "./UrlBar";
 import { BrowserProfile } from "../types";
@@ -16,10 +16,12 @@ interface TitleBarProps {
   canGoForward: boolean;
   canRefresh: boolean;
   canInstallStoreExtension: boolean;
+  backHistoryItems: string[];
   onGoBack: () => void;
   onGoForward: () => void;
   onRefresh: () => void;
   onInstallStoreExtension: () => void;
+  onNavigateBackHistory: (url: string) => void;
   urlValue: string;
   activeUrl: string;
   addressSuggestions: string[];
@@ -45,10 +47,12 @@ export function TitleBar({
   canGoForward,
   canRefresh,
   canInstallStoreExtension,
+  backHistoryItems,
   onGoBack,
   onGoForward,
   onRefresh,
   onInstallStoreExtension,
+  onNavigateBackHistory,
   urlValue,
   activeUrl,
   addressSuggestions,
@@ -61,11 +65,33 @@ export function TitleBar({
   onRunPageIntelligence
 }: TitleBarProps) {
   const [maximized, setMaximized] = useState(false);
+  const [showBackHistory, setShowBackHistory] = useState(false);
+  const backHistoryRef = useRef<HTMLDivElement | null>(null);
+
+  const backMenuItems = useMemo(() => backHistoryItems.slice(0, 20), [backHistoryItems]);
 
   useEffect(() => {
     void window.lumen.window.isMaximized().then(setMaximized);
     return window.lumen.window.onMaximizedChange(setMaximized);
   }, []);
+
+  useEffect(() => {
+    if (!showBackHistory) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!backHistoryRef.current) {
+        return;
+      }
+      if (!backHistoryRef.current.contains(event.target as Node)) {
+        setShowBackHistory(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [showBackHistory]);
 
   return (
     <header className="title-bar">
@@ -91,8 +117,23 @@ export function TitleBar({
           </button>
         </div>
 
-        <div className="nav-controls no-drag">
-          <button className="icon-button" onClick={onGoBack} disabled={!canGoBack} title="Back">
+        <div className="nav-controls no-drag" ref={backHistoryRef}>
+          <button
+            className="icon-button"
+            onClick={() => {
+              setShowBackHistory(false);
+              onGoBack();
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              if (!backMenuItems.length) {
+                return;
+              }
+              setShowBackHistory((value) => !value);
+            }}
+            disabled={!canGoBack}
+            title="Back (right-click for history)"
+          >
             <ChevronLeft size={14} strokeWidth={1.9} />
           </button>
           <button className="icon-button" onClick={onGoForward} disabled={!canGoForward} title="Forward">
@@ -109,6 +150,24 @@ export function TitleBar({
           >
             <Download size={13} strokeWidth={1.9} />
           </button>
+
+          {showBackHistory && backMenuItems.length ? (
+            <div className="back-history-menu">
+              {backMenuItems.map((url) => (
+                <button
+                  key={url}
+                  className="back-history-item"
+                  onClick={() => {
+                    onNavigateBackHistory(url);
+                    setShowBackHistory(false);
+                  }}
+                  title={url}
+                >
+                  {url}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 

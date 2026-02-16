@@ -11,6 +11,13 @@ interface CommandPaletteProps {
 }
 
 const COMMANDS = [
+  "New tab",
+  "Close tab",
+  "Focus address bar",
+  "Go back",
+  "Go forward",
+  "Refresh page",
+  "Toggle sidebar",
   "Toggle dark mode",
   "Suspend all tabs",
   "Open task manager",

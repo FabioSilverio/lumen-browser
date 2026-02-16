@@ -11,6 +11,87 @@ import { applyBrowserSecurity } from "./security";
 import { PermissionAuditStore } from "./services/permission-audit-store";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
+type ShortcutAction =
+  | "new_tab"
+  | "close_tab"
+  | "focus_url"
+  | "toggle_palette"
+  | "toggle_sidebar"
+  | "toggle_theme"
+  | "toggle_suspend"
+  | "toggle_ai"
+  | "group_tabs"
+  | "toggle_task_manager"
+  | "refresh_page"
+  | "next_tab"
+  | "prev_tab";
+
+function mapInputToShortcut(input: Electron.Input): ShortcutAction | null {
+  if (input.type !== "keyDown") {
+    return null;
+  }
+
+  const key = (input.key ?? "").toLowerCase();
+  const ctrl = Boolean(input.control);
+  const shift = Boolean(input.shift);
+
+  if (!ctrl) {
+    return null;
+  }
+
+  if (key === "t" && shift) {
+    return "toggle_task_manager";
+  }
+  if (key === "t") {
+    return "new_tab";
+  }
+  if (key === "w") {
+    return "close_tab";
+  }
+  if (key === "l") {
+    return "focus_url";
+  }
+  if (key === "k") {
+    return "toggle_palette";
+  }
+  if (key === "b") {
+    return "toggle_sidebar";
+  }
+  if (key === "/" || key === "divide") {
+    return "toggle_theme";
+  }
+  if (key === "s" && shift) {
+    return "toggle_suspend";
+  }
+  if (key === "a" && shift) {
+    return "toggle_ai";
+  }
+  if (key === "g" && shift) {
+    return "group_tabs";
+  }
+  if (key === "tab" && shift) {
+    return "prev_tab";
+  }
+  if (key === "tab") {
+    return "next_tab";
+  }
+  if (key === "r" || key === "f5") {
+    return "refresh_page";
+  }
+
+  return null;
+}
+
+function bindShortcutForwarding(mainWindow: BrowserWindow, contents: Electron.WebContents): void {
+  contents.on("before-input-event", (event, input) => {
+    const action = mapInputToShortcut(input);
+    if (!action) {
+      return;
+    }
+    event.preventDefault();
+    mainWindow.webContents.send("app:shortcut", { action });
+  });
+}
 
 function configurePerformance(): void {
   app.commandLine.appendSwitch("disable-features", "BackForwardCache,Prerender2");
@@ -63,8 +144,11 @@ function createMainWindow(): BrowserWindow {
     mainWindow.webContents.send("browser:new-tab-requested", { url });
     return { action: "deny" };
   });
+  bindShortcutForwarding(mainWindow, mainWindow.webContents);
 
   mainWindow.webContents.on("did-attach-webview", (_event, webContents) => {
+    bindShortcutForwarding(mainWindow, webContents);
+
     webContents.setWindowOpenHandler(({ url }) => {
       mainWindow.webContents.send("browser:new-tab-requested", { url });
       return { action: "deny" };

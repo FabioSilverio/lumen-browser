@@ -355,6 +355,16 @@ function parseChromeWebStoreUrl(url: string | undefined): string | null {
   return `https://chromewebstore.google.com/detail/${match[1].toLowerCase()}`;
 }
 
+function buildInitialTabVisitHistory(tabs: BrowserTab[]): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  tabs.forEach((tab) => {
+    if (tab.kind === "web" && tab.url) {
+      map[tab.id] = [tab.url];
+    }
+  });
+  return map;
+}
+
 function defaultGlobal(profile: BrowserProfile): GlobalSettings {
   return {
     sidebarPinned: true,
@@ -504,6 +514,9 @@ export function App() {
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [pageIntelLoading, setPageIntelLoading] = useState(false);
+  const [tabVisitHistory, setTabVisitHistory] = useState<Record<string, string[]>>(
+    buildInitialTabVisitHistory(bootstrap.session.tabs)
+  );
 
   const hoverTimerRef = useRef<number | null>(null);
   const webviewRef = useRef<Electron.WebviewTag | null>(null);
@@ -721,6 +734,26 @@ export function App() {
     };
     window.localStorage.setItem(profileSessionKey(activeProfileId), JSON.stringify(session));
   }, [tabs, spaces, folders, activeTabId, urlHistory, activeProfileId]);
+
+  useEffect(() => {
+    setTabVisitHistory((prev) => {
+      const next: Record<string, string[]> = {};
+      tabs.forEach((tab) => {
+        if (tab.kind !== "web") {
+          return;
+        }
+        const existing = prev[tab.id];
+        if (existing?.length) {
+          next[tab.id] = existing;
+          return;
+        }
+        if (tab.url) {
+          next[tab.id] = [tab.url];
+        }
+      });
+      return next;
+    });
+  }, [tabs]);
 
   useEffect(() => {
     void window.lumen.extensions.activateProfile(activeProfileId);
@@ -1029,6 +1062,7 @@ export function App() {
     setFolders(nextSession.folders);
     setActiveTabId(nextSession.activeTabId);
     setUrlHistory(nextSession.urlHistory);
+    setTabVisitHistory(buildInitialTabVisitHistory(nextSession.tabs));
     setUrlFocused(false);
     setProviderSuggestions([]);
     setCanGoBack(false);
@@ -1048,6 +1082,10 @@ export function App() {
     const fallbackSpace = spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
     const tab = createTab(spaceId ?? fallbackSpace, url, title ?? "New Tab");
     setTabs((prev) => [...prev, tab]);
+    setTabVisitHistory((prev) => ({
+      ...prev,
+      [tab.id]: tab.url ? [tab.url] : []
+    }));
     setActiveTabId(tab.id);
   }
 
@@ -1058,6 +1096,12 @@ export function App() {
         const fallbackSpace = spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
         const fallback = createTab(fallbackSpace);
         setActiveTabId(fallback.id);
+        setTabVisitHistory((history) => {
+          const copy = { ...history };
+          delete copy[id];
+          copy[fallback.id] = [fallback.url];
+          return copy;
+        });
         return [fallback];
       }
 
@@ -1066,6 +1110,11 @@ export function App() {
       }
 
       return next;
+    });
+    setTabVisitHistory((prev) => {
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
     });
   }
 
@@ -1125,6 +1174,25 @@ export function App() {
     setUrlFocused(false);
     setUrlValue("");
     setProviderSuggestions([]);
+  }
+
+  function rememberVisitedUrl(tabId: string, url: string): void {
+    setTabVisitHistory((prev) => {
+      const current = prev[tabId] ?? [];
+      const normalized = url.trim();
+      if (!normalized) {
+        return prev;
+      }
+      if (current[current.length - 1] === normalized) {
+        return prev;
+      }
+      const next = [...current.filter((item) => item !== normalized), normalized].slice(-60);
+      return {
+        ...prev,
+        [tabId]: next
+      };
+    });
+    setUrlHistory((prev) => [url, ...prev.filter((entry) => entry !== url)].slice(0, 120));
   }
 
   async function runAddressAIQuery(query: {
@@ -1442,6 +1510,30 @@ export function App() {
 
   const handleRunCommand = (command: string) => {
     switch (command) {
+      case "New tab":
+        handleNewTab();
+        break;
+      case "Close tab":
+        handleCloseTab(activeTabId);
+        break;
+      case "Focus address bar": {
+        const input = document.getElementById("lumen-url-input") as HTMLInputElement | null;
+        input?.focus();
+        input?.select();
+        break;
+      }
+      case "Go back":
+        handleGoBack();
+        break;
+      case "Go forward":
+        handleGoForward();
+        break;
+      case "Refresh page":
+        handleRefresh();
+        break;
+      case "Toggle sidebar":
+        setSidebarPinned((current) => !current);
+        break;
       case "Toggle dark mode":
         setTheme((current) => (current === "light" ? "dark" : "light"));
         break;
@@ -1501,6 +1593,16 @@ export function App() {
   const currentIntel = activeTab ? pageIntel[activeTab.id] : undefined;
   const canRefresh = activeTab?.kind === "web" && !activeTab.suspended;
   const storeInstallUrl = activeTab?.kind === "web" ? parseChromeWebStoreUrl(activeTab.url) : null;
+  const backHistoryItems = useMemo(() => {
+    if (!activeTab || activeTab.kind !== "web") {
+      return [];
+    }
+    const current = tabVisitHistory[activeTab.id] ?? [];
+    if (!current.length) {
+      return [];
+    }
+    return current.slice(0, -1).reverse();
+  }, [activeTab?.id, activeTab?.kind, tabVisitHistory]);
 
   const handleGoBack = () => {
     const webview = webviewRef.current;
@@ -1539,6 +1641,74 @@ export function App() {
     });
   };
 
+  const handleNavigateBackHistory = (url: string) => {
+    if (!activeTab || activeTab.kind !== "web") {
+      return;
+    }
+
+    updateTab(activeTab.id, (tab) => ({
+      ...tab,
+      url,
+      title: "Loading...",
+      suspended: false,
+      lastActiveAt: Date.now()
+    }));
+    setUrlFocused(false);
+    setUrlValue("");
+    setProviderSuggestions([]);
+  };
+
+  useEffect(() => {
+    return window.lumen.window.onShortcut(({ action }) => {
+      switch (action) {
+        case "new_tab":
+          handleNewTab();
+          break;
+        case "close_tab":
+          handleCloseTab(activeTabId);
+          break;
+        case "focus_url": {
+          const input = document.getElementById("lumen-url-input") as HTMLInputElement | null;
+          input?.focus();
+          input?.select();
+          break;
+        }
+        case "toggle_palette":
+          setPaletteOpen((current) => !current);
+          break;
+        case "toggle_sidebar":
+          setSidebarPinned((current) => !current);
+          break;
+        case "toggle_theme":
+          setTheme((current) => (current === "light" ? "dark" : "light"));
+          break;
+        case "toggle_suspend":
+          setSuspensionEnabled((current) => !current);
+          break;
+        case "toggle_ai":
+          setAiOpen((current) => !current);
+          break;
+        case "group_tabs":
+          void handleAutoGroupTabs();
+          break;
+        case "toggle_task_manager":
+          setTaskManagerOpen((current) => !current);
+          break;
+        case "next_tab":
+          setActiveTabId((currentId) => rotateTabs(tabs, currentId, 1));
+          break;
+        case "prev_tab":
+          setActiveTabId((currentId) => rotateTabs(tabs, currentId, -1));
+          break;
+        case "refresh_page":
+          handleRefresh();
+          break;
+        default:
+          break;
+      }
+    });
+  }, [activeTabId, tabs]);
+
   return (
     <div className="app-root">
       <TitleBar
@@ -1557,7 +1727,9 @@ export function App() {
         onGoForward={handleGoForward}
         onRefresh={handleRefresh}
         canInstallStoreExtension={Boolean(storeInstallUrl)}
+        backHistoryItems={backHistoryItems}
         onInstallStoreExtension={handleInstallFromStore}
+        onNavigateBackHistory={handleNavigateBackHistory}
         urlValue={urlValue}
         activeUrl={activeTab?.kind === "web" ? activeTab.url : ""}
         addressSuggestions={addressSuggestions}
@@ -1644,7 +1816,13 @@ export function App() {
             webviewRef={webviewRef}
             onRestoreTab={() => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, suspended: false }))}
             onTitleChange={(title) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, title }))}
-            onUrlChange={(url) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, url }))}
+            onUrlChange={(url) => {
+              if (!activeTab) {
+                return;
+              }
+              updateTab(activeTab.id, (tab) => ({ ...tab, url }));
+              rememberVisitedUrl(activeTab.id, url);
+            }}
             onFaviconChange={(favicon) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, favicon }))}
             onNavigationStateChange={({ canGoBack: nextCanGoBack, canGoForward: nextCanGoForward }) => {
               setCanGoBack(nextCanGoBack);

@@ -11,6 +11,11 @@ const api = {
       const wrapped = (_event: unknown, maximized: boolean) => listener(maximized);
       ipcRenderer.on("window:maximized", wrapped);
       return () => ipcRenderer.removeListener("window:maximized", wrapped);
+    },
+    onShortcut: (listener: (payload: { action: string }) => void) => {
+      const wrapped = (_event: unknown, payload: { action: string }) => listener(payload);
+      ipcRenderer.on("app:shortcut", wrapped);
+      return () => ipcRenderer.removeListener("app:shortcut", wrapped);
     }
   },
   system: {

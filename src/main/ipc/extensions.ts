@@ -23,8 +23,27 @@ function extensionRoot(): string {
 }
 
 function extractIdFromWebStoreUrl(url: string): string | null {
-  const match = url.match(/([a-p]{32})/i);
-  return match?.[1]?.toLowerCase() ?? null;
+  try {
+    const parsed = new URL(url);
+    const byQuery = parsed.searchParams.get("id")?.toLowerCase() ?? "";
+    if (/^[a-p]{32}$/.test(byQuery)) {
+      return byQuery;
+    }
+
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => decodeURIComponent(segment).trim().toLowerCase())
+      .filter(Boolean);
+    const strictSegment = segments.find((segment) => /^[a-p]{32}$/.test(segment));
+    if (strictSegment) {
+      return strictSegment;
+    }
+  } catch {
+    // fall through to regex fallback
+  }
+
+  const allMatches = [...url.toLowerCase().matchAll(/[a-p]{32}/g)].map((match) => match[0]);
+  return allMatches[allMatches.length - 1] ?? null;
 }
 
 function crxToZipBuffer(buffer: Buffer): Buffer {
@@ -58,19 +77,54 @@ function unpackZipToExtensionFolder(zipBuffer: Buffer, extensionIdHint: string):
 }
 
 async function downloadWebStoreCrx(extensionId: string): Promise<Buffer> {
-  const url = `https://clients2.google.com/service/update2/crx?response=redirect&prodversion=131.0.6778.86&acceptformat=crx3&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`;
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "Lumen/1.0",
-      Accept: "application/x-chrome-extension,application/octet-stream,*/*"
-    },
-    redirect: "follow"
-  });
-  if (!response.ok) {
-    throw new Error(`Web Store download failed (${response.status})`);
+  const endpoints = [
+    `https://clients2.google.com/service/update2/crx?response=redirect&prodversion=132.0.6834.110&acceptformat=crx3,crx2&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`,
+    `https://clients2.google.com/service/update2/crx?response=redirect&prodversion=131.0.6778.86&acceptformat=crx3,crx2&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`,
+    `https://clients2.google.com/service/update2/crx?response=redirect&os=win&arch=x64&os_arch=x86_64&prod=chromium&prodchannel=stable&prodversion=132.0.6834.110&acceptformat=crx3,crx2&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`
+  ];
+
+  let lastError = "Unknown failure";
+
+  for (const url of endpoints) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+          Accept: "application/x-chrome-extension,application/octet-stream,*/*"
+        },
+        redirect: "follow"
+      });
+
+      if (!response.ok) {
+        lastError = `Web Store download failed (${response.status})`;
+        continue;
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      if (buffer.length < 4) {
+        lastError = "Web Store returned empty extension package";
+        continue;
+      }
+
+      // Valid CRX header
+      if (buffer.slice(0, 4).toString("ascii") === "Cr24") {
+        return buffer;
+      }
+
+      // ZIP payload (some mirrors can return unpacked zip)
+      if (buffer[0] === 0x50 && buffer[1] === 0x4b) {
+        return buffer;
+      }
+
+      const snippet = buffer.slice(0, 180).toString("utf-8").replace(/\s+/g, " ").trim();
+      lastError = snippet ? `Unexpected payload from Web Store: ${snippet}` : "Unexpected payload from Web Store";
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : "Network error while downloading extension";
+    }
   }
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+
+  throw new Error(lastError);
 }
 
 function toDTO(profileId: string): ExtensionDTO[] {
@@ -171,11 +225,16 @@ export function registerExtensionsIpc(): void {
       return toDTO(profileId);
     }
     const source = readFileSync(path);
-    const zipBuffer = path.toLowerCase().endsWith(".zip") ? source : crxToZipBuffer(source);
+    const isZipPayload = source[0] === 0x50 && source[1] === 0x4b;
+    const zipBuffer = path.toLowerCase().endsWith(".zip") || isZipPayload ? source : crxToZipBuffer(source);
     const unpackedPath = unpackZipToExtensionFolder(zipBuffer, "imported");
     const nextPaths = [...new Set([...profilePaths(store, profileId), unpackedPath])];
     saveProfilePaths(store, profileId, nextPaths);
-    await ensureLoaded(profileId, [unpackedPath]);
+    const loaded = await ensureLoaded(profileId, [unpackedPath]);
+    if (loaded < 1) {
+      rmSync(unpackedPath, { recursive: true, force: true });
+      throw new Error("Imported extension could not be loaded. Manifest may be invalid for this browser build.");
+    }
 
     return toDTO(profileId);
   });
@@ -189,14 +248,18 @@ export function registerExtensionsIpc(): void {
     const crxBuffer = await downloadWebStoreCrx(extensionId);
     const debugCrxPath = join(extensionRoot(), `${extensionId}-${Date.now()}.crx`);
     writeFileSync(debugCrxPath, crxBuffer);
-    const zipBuffer = crxToZipBuffer(crxBuffer);
+    const isZipPayload = crxBuffer[0] === 0x50 && crxBuffer[1] === 0x4b;
+    const zipBuffer = isZipPayload ? crxBuffer : crxToZipBuffer(crxBuffer);
     const unpackedPath = unpackZipToExtensionFolder(zipBuffer, extensionId);
 
     const nextPaths = [...new Set([...profilePaths(store, payload.profileId), unpackedPath])];
     saveProfilePaths(store, payload.profileId, nextPaths);
 
     try {
-      await ensureLoaded(payload.profileId, [unpackedPath]);
+      const loaded = await ensureLoaded(payload.profileId, [unpackedPath]);
+      if (loaded < 1) {
+        throw new Error("Extension package extracted but failed to load.");
+      }
     } catch {
       rmSync(unpackedPath, { recursive: true, force: true });
       throw new Error("Extension downloaded but failed to load. It may require unsupported Chrome APIs.");

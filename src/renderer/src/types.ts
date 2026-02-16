@@ -136,6 +136,22 @@ declare global {
         close: () => Promise<void>;
         isMaximized: () => Promise<boolean>;
         onMaximizedChange: (listener: (maximized: boolean) => void) => () => void;
+        onShortcut: (listener: (payload: {
+          action:
+            | "new_tab"
+            | "close_tab"
+            | "focus_url"
+            | "toggle_palette"
+            | "toggle_sidebar"
+            | "toggle_theme"
+            | "toggle_suspend"
+            | "toggle_ai"
+            | "group_tabs"
+            | "toggle_task_manager"
+            | "refresh_page"
+            | "next_tab"
+            | "prev_tab";
+        }) => void) => () => void;
       };
       system: {
         metrics: () => Promise<LumenMetrics>;
