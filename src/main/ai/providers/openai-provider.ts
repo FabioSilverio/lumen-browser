@@ -1,5 +1,5 @@
 import { AIProviderClient, ChatMessage, ProviderStreamResult } from "../types";
-import { ProviderRequestError, readSSEStream } from "./common";
+import { formatProviderError, ProviderRequestError, readSSEStream } from "./common";
 
 export class OpenAIProvider implements AIProviderClient {
   async streamChat(
@@ -28,7 +28,7 @@ export class OpenAIProvider implements AIProviderClient {
 
     if (!response.ok || !response.body) {
       const details = await response.text();
-      throw new ProviderRequestError(`OpenAI request failed (${response.status}): ${details}`, response.status);
+      throw new ProviderRequestError(formatProviderError("OpenAI", response.status, details), response.status);
     }
 
     let usage: ProviderStreamResult["usage"];

@@ -1,5 +1,5 @@
 import { AIProviderClient, ChatMessage, ProviderStreamResult } from "../types";
-import { ProviderRequestError, readSSEStream } from "./common";
+import { formatProviderError, ProviderRequestError, readSSEStream } from "./common";
 
 export class AnthropicProvider implements AIProviderClient {
   async streamChat(
@@ -38,7 +38,7 @@ export class AnthropicProvider implements AIProviderClient {
 
     if (!response.ok || !response.body) {
       const details = await response.text();
-      throw new ProviderRequestError(`Anthropic request failed (${response.status}): ${details}`, response.status);
+      throw new ProviderRequestError(formatProviderError("Anthropic", response.status, details), response.status);
     }
 
     let usage: ProviderStreamResult["usage"];

@@ -95,6 +95,76 @@
   background: rgba(255, 59, 48, 0.2);
 }
 
+.window-glyph {
+  position: relative;
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  opacity: 0.9;
+}
+
+.window-glyph.minimize::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 1px;
+  height: 1.6px;
+  background: currentColor;
+  border-radius: 999px;
+}
+
+.window-glyph.maximize {
+  border: 1.4px solid currentColor;
+  border-radius: 1px;
+}
+
+.window-glyph.restore {
+  width: 12px;
+  height: 12px;
+}
+
+.window-glyph.restore::before,
+.window-glyph.restore::after {
+  content: "";
+  position: absolute;
+  border: 1.3px solid currentColor;
+  border-radius: 1px;
+  width: 8px;
+  height: 7px;
+  background: var(--surface);
+}
+
+.window-glyph.restore::before {
+  right: 0;
+  top: 0;
+}
+
+.window-glyph.restore::after {
+  left: 0;
+  bottom: 0;
+}
+
+.window-glyph.close::before,
+.window-glyph.close::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: -1px;
+  width: 1.6px;
+  height: 13px;
+  background: currentColor;
+  border-radius: 999px;
+}
+
+.window-glyph.close::before {
+  transform: rotate(45deg);
+}
+
+.window-glyph.close::after {
+  transform: rotate(-45deg);
+}
+
 .primary-button {
   background: var(--accent);
   color: #fff;

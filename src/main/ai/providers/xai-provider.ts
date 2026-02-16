@@ -1,5 +1,5 @@
 import { AIProviderClient, ChatMessage, ProviderStreamResult } from "../types";
-import { ProviderRequestError, readSSEStream } from "./common";
+import { formatProviderError, ProviderRequestError, readSSEStream } from "./common";
 
 export class XAIProvider implements AIProviderClient {
   async streamChat(
@@ -28,7 +28,7 @@ export class XAIProvider implements AIProviderClient {
 
     if (!response.ok || !response.body) {
       const details = await response.text();
-      throw new ProviderRequestError(`xAI request failed (${response.status}): ${details}`, response.status);
+      throw new ProviderRequestError(formatProviderError("xAI", response.status, details), response.status);
     }
 
     let usage: ProviderStreamResult["usage"];

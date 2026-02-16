@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Command, Maximize2, Minimize2, PanelLeft, Square, X } from "lucide-react";
+import { Command, PanelLeft } from "lucide-react";
 import { UrlBar } from "./UrlBar";
 
 interface TitleBarProps {
@@ -65,7 +65,7 @@ export function TitleBar({
           <Command size={15} strokeWidth={1.8} />
         </button>
         <button className="window-button" onClick={() => void window.lumen.window.minimize()} title="Minimize">
-          <Minimize2 size={14} strokeWidth={1.8} />
+          <span className="window-glyph minimize" />
         </button>
         <button
           className="window-button"
@@ -76,10 +76,10 @@ export function TitleBar({
           }
           title={maximized ? "Restore" : "Maximize"}
         >
-          {maximized ? <Square size={12} strokeWidth={1.8} /> : <Maximize2 size={14} strokeWidth={1.8} />}
+          <span className={`window-glyph ${maximized ? "restore" : "maximize"}`} />
         </button>
         <button className="window-button close" onClick={() => void window.lumen.window.close()} title="Close">
-          <X size={14} strokeWidth={2} />
+          <span className="window-glyph close" />
         </button>
       </div>
     </header>

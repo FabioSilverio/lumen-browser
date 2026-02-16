@@ -1,6 +1,7 @@
 import { ChatMessage } from "../types";
 
 const decoder = new TextDecoder();
+type ProviderName = "OpenAI" | "Anthropic" | "xAI";
 
 export class ProviderRequestError extends Error {
   readonly status: number;
@@ -10,6 +11,62 @@ export class ProviderRequestError extends Error {
     this.status = status;
     this.name = "ProviderRequestError";
   }
+}
+
+function parseErrorPayload(details: string): {
+  message?: string;
+  code?: string;
+  type?: string;
+} {
+  try {
+    const parsed = JSON.parse(details) as Record<string, unknown>;
+    const nested = parsed.error as Record<string, unknown> | undefined;
+
+    if (nested && typeof nested === "object") {
+      return {
+        message: typeof nested.message === "string" ? nested.message : undefined,
+        code: typeof nested.code === "string" ? nested.code : undefined,
+        type: typeof nested.type === "string" ? nested.type : undefined
+      };
+    }
+
+    return {
+      message: typeof parsed.message === "string" ? parsed.message : undefined,
+      code: typeof parsed.code === "string" ? parsed.code : undefined,
+      type: typeof parsed.type === "string" ? parsed.type : undefined
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function formatProviderError(provider: ProviderName, status: number, details: string): string {
+  const parsed = parseErrorPayload(details);
+  const message = parsed.message?.trim();
+  const code = parsed.code?.toLowerCase() ?? "";
+  const type = parsed.type?.toLowerCase() ?? "";
+
+  if (status === 401) {
+    return `${provider} API key is invalid or missing permission. Update it in Settings > AI.`;
+  }
+
+  if (status === 429 && (code === "insufficient_quota" || type === "insufficient_quota")) {
+    return `${provider} quota exceeded. Add billing/credits for this provider or switch provider and use @claude/@grok/@gpt commands.`;
+  }
+
+  if (status === 429) {
+    return `${provider} rate limit reached. Wait a moment and try again.`;
+  }
+
+  if (status >= 500) {
+    return `${provider} is temporarily unavailable (${status}). Please retry shortly.`;
+  }
+
+  if (message) {
+    return `${provider} request failed (${status}): ${message}`;
+  }
+
+  return `${provider} request failed (${status}).`;
 }
 
 export function parseSSEChunk(buffer: string): { events: string[]; rest: string } {
