@@ -42,11 +42,24 @@ export function WebViewport({
       return;
     }
 
+    let domReady = false;
+
     const emitNavState = () => {
-      onNavigationStateChange({
-        canGoBack: webview.canGoBack(),
-        canGoForward: webview.canGoForward()
-      });
+      if (!domReady) {
+        return;
+      }
+
+      try {
+        onNavigationStateChange({
+          canGoBack: webview.canGoBack(),
+          canGoForward: webview.canGoForward()
+        });
+      } catch {
+        onNavigationStateChange({
+          canGoBack: false,
+          canGoForward: false
+        });
+      }
     };
 
     const handleTitle = (event: Electron.PageTitleUpdatedEvent) => {
@@ -79,12 +92,17 @@ export function WebViewport({
       emitNavState();
     };
 
+    const handleDomReady = () => {
+      domReady = true;
+      emitNavState();
+    };
+
     webview.addEventListener("page-title-updated", handleTitle);
     webview.addEventListener("did-navigate", handleNavigate);
     webview.addEventListener("did-navigate-in-page", handleInPageNavigate);
     webview.addEventListener("page-favicon-updated", handleFavicon);
     webview.addEventListener("did-stop-loading", handleDidStopLoading);
-    emitNavState();
+    webview.addEventListener("dom-ready", handleDomReady);
 
     return () => {
       webview.removeEventListener("page-title-updated", handleTitle);
@@ -92,6 +110,7 @@ export function WebViewport({
       webview.removeEventListener("did-navigate-in-page", handleInPageNavigate);
       webview.removeEventListener("page-favicon-updated", handleFavicon);
       webview.removeEventListener("did-stop-loading", handleDidStopLoading);
+      webview.removeEventListener("dom-ready", handleDomReady);
     };
   }, [tab?.id, tab?.url, tab?.suspended, tab?.kind, onTitleChange, onUrlChange, onFaviconChange, onNavigationStateChange, webviewRef]);
 
