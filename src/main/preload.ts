@@ -45,7 +45,21 @@ const api = {
     activateProfile: (profileId: string) => ipcRenderer.invoke("extensions:activate-profile", profileId),
     list: (profileId: string) => ipcRenderer.invoke("extensions:list", profileId),
     pickAndInstall: (profileId: string) => ipcRenderer.invoke("extensions:pick-and-install", profileId),
+    importCrx: (profileId: string) => ipcRenderer.invoke("extensions:import-crx", profileId),
+    installFromWebStore: (profileId: string, storeUrl: string) =>
+      ipcRenderer.invoke("extensions:install-from-web-store", { profileId, storeUrl }),
     remove: (profileId: string, extensionId: string) => ipcRenderer.invoke("extensions:remove", { profileId, extensionId })
+  },
+  passwords: {
+    list: (profileId: string) => ipcRenderer.invoke("passwords:list", profileId),
+    save: (payload: unknown) => ipcRenderer.invoke("passwords:save", payload),
+    remove: (payload: { profileId: string; id: string }) => ipcRenderer.invoke("passwords:remove", payload)
+  },
+  security: {
+    getAudit: () => ipcRenderer.invoke("security:get-audit"),
+    setRule: (payload: unknown) => ipcRenderer.invoke("security:set-rule", payload),
+    removeRule: (key: string) => ipcRenderer.invoke("security:remove-rule", key),
+    clearEvents: () => ipcRenderer.invoke("security:clear-events")
   }
 };
 

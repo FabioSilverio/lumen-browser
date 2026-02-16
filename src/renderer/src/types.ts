@@ -73,6 +73,41 @@ export interface InstalledExtension {
   path: string;
 }
 
+export interface SavedPassword {
+  id: string;
+  site: string;
+  username: string;
+  password: string;
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type PermissionRuleDecision = "allow" | "block";
+export type PermissionDecisionLog =
+  | "allow_once"
+  | "allow_always"
+  | "block_once"
+  | "block_always"
+  | "rule_allow"
+  | "rule_block";
+
+export interface PermissionRule {
+  key: string;
+  origin: string;
+  permission: string;
+  decision: PermissionRuleDecision;
+  updatedAt: number;
+}
+
+export interface PermissionEvent {
+  id: string;
+  timestamp: number;
+  origin: string;
+  permission: string;
+  decision: PermissionDecisionLog;
+}
+
 export interface LumenMetrics {
   processes: Array<{
     pid: number;
@@ -161,7 +196,29 @@ declare global {
         activateProfile: (profileId: string) => Promise<{ loaded: number }>;
         list: (profileId: string) => Promise<InstalledExtension[]>;
         pickAndInstall: (profileId: string) => Promise<InstalledExtension[]>;
+        importCrx: (profileId: string) => Promise<InstalledExtension[]>;
+        installFromWebStore: (profileId: string, storeUrl: string) => Promise<InstalledExtension[]>;
         remove: (profileId: string, extensionId: string) => Promise<InstalledExtension[]>;
+      };
+      passwords: {
+        list: (profileId: string) => Promise<SavedPassword[]>;
+        save: (payload: {
+          profileId: string;
+          entry: {
+            id?: string;
+            site: string;
+            username: string;
+            password: string;
+            notes?: string;
+          };
+        }) => Promise<SavedPassword[]>;
+        remove: (payload: { profileId: string; id: string }) => Promise<SavedPassword[]>;
+      };
+      security: {
+        getAudit: () => Promise<{ events: PermissionEvent[]; rules: PermissionRule[] }>;
+        setRule: (payload: { origin: string; permission: string; decision: PermissionRuleDecision }) => Promise<{ rules: PermissionRule[] }>;
+        removeRule: (key: string) => Promise<{ rules: PermissionRule[] }>;
+        clearEvents: () => Promise<{ events: PermissionEvent[] }>;
       };
     };
   }

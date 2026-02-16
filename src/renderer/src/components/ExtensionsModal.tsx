@@ -4,13 +4,15 @@ import { InstalledExtension } from "../types";
 interface ExtensionsModalProps {
   open: boolean;
   profileId: string;
+  initialStoreUrl?: string;
   onClose: () => void;
 }
 
-export function ExtensionsModal({ open, profileId, onClose }: ExtensionsModalProps) {
+export function ExtensionsModal({ open, profileId, initialStoreUrl, onClose }: ExtensionsModalProps) {
   const [items, setItems] = useState<InstalledExtension[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [storeUrl, setStoreUrl] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -29,8 +31,9 @@ export function ExtensionsModal({ open, profileId, onClose }: ExtensionsModalPro
     if (!open) {
       return;
     }
+    setStoreUrl(initialStoreUrl ?? "");
     void load();
-  }, [open, profileId]);
+  }, [open, profileId, initialStoreUrl]);
 
   if (!open) {
     return null;
@@ -45,8 +48,8 @@ export function ExtensionsModal({ open, profileId, onClose }: ExtensionsModalPro
         </div>
 
         <p className="helper-text">
-          Install unpacked Chromium extensions. Chrome Web Store direct one-click install is restricted in Electron,
-          but compatible unpacked extensions (1Password, blockers) work here.
+          You can install unpacked extensions, import CRX files, or try direct install from a Chrome Web Store URL.
+          Some store extensions may still fail if they rely on unsupported Chrome-only APIs.
         </p>
 
         <div className="extensions-actions">
@@ -58,10 +61,47 @@ export function ExtensionsModal({ open, profileId, onClose }: ExtensionsModalPro
           >
             Install unpacked extension
           </button>
+          <button
+            className="secondary-button"
+            onClick={() => {
+              setError("");
+              void window.lumen.extensions.importCrx(profileId).then((list) => setItems(list)).catch((err) => {
+                setError(err instanceof Error ? err.message : "CRX import failed");
+              });
+            }}
+          >
+            Import CRX/ZIP
+          </button>
           <button className="secondary-button" onClick={() => void load()}>
             Refresh
           </button>
         </div>
+
+        <form
+          className="extensions-store-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!storeUrl.trim()) {
+              return;
+            }
+            setError("");
+            setLoading(true);
+            void window.lumen.extensions.installFromWebStore(profileId, storeUrl.trim()).then((list) => {
+              setItems(list);
+            }).catch((err) => {
+              setError(err instanceof Error ? err.message : "Chrome Web Store install failed");
+            }).finally(() => {
+              setLoading(false);
+            });
+          }}
+        >
+          <input
+            value={storeUrl}
+            onChange={(event) => setStoreUrl(event.target.value)}
+            placeholder="Paste Chrome Web Store extension URL"
+          />
+          <button className="primary-button" type="submit">Install from store URL</button>
+        </form>
 
         {loading ? <div className="palette-tip">Loading extensions...</div> : null}
         {error ? <div className="palette-tip">{error}</div> : null}

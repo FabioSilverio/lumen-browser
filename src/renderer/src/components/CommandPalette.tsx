@@ -15,6 +15,8 @@ const COMMANDS = [
   "Suspend all tabs",
   "Open task manager",
   "Manage extensions",
+  "Password manager",
+  "Permission audit",
   "Toggle AI panel",
   "Suggest stale tabs",
   "Group tabs by topic",

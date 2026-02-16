@@ -1,6 +1,6 @@
 {
   "name": "lumen-browser",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": false,
   "description": "Lumen - minimalist AI-powered Chromium browser shell for Windows",
   "author": "FabioSilverio",
@@ -19,6 +19,8 @@
     "start": "node scripts/run-electron.cjs"
   },
   "dependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "adm-zip": "^0.5.16",
     "lucide-react": "^0.564.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

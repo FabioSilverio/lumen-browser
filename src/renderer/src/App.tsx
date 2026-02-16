@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AIPanel } from "./components/AIPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { ExtensionsModal } from "./components/ExtensionsModal";
+import { PasswordManagerModal } from "./components/PasswordManagerModal";
+import { PermissionAuditModal } from "./components/PermissionAuditModal";
 import { ProfileGate } from "./components/ProfileGate";
 import { Sidebar } from "./components/Sidebar";
 import { TaskManagerModal } from "./components/TaskManagerModal";
@@ -342,6 +344,17 @@ function normalizeSession(input: Partial<ProfileSession> | null | undefined): Pr
   };
 }
 
+function parseChromeWebStoreUrl(url: string | undefined): string | null {
+  if (!url) {
+    return null;
+  }
+  const match = url.match(/https?:\/\/chromewebstore\.google\.com\/detail\/[^/]+\/([a-p]{32})/i) ?? url.match(/https?:\/\/chromewebstore\.google\.com\/detail\/([a-p]{32})/i) ?? url.match(/([a-p]{32})/i);
+  if (!match?.[1]) {
+    return null;
+  }
+  return `https://chromewebstore.google.com/detail/${match[1].toLowerCase()}`;
+}
+
 function defaultGlobal(profile: BrowserProfile): GlobalSettings {
   return {
     sidebarPinned: true,
@@ -472,6 +485,8 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskManagerOpen, setTaskManagerOpen] = useState(false);
   const [extensionsModalOpen, setExtensionsModalOpen] = useState(false);
+  const [passwordsModalOpen, setPasswordsModalOpen] = useState(false);
+  const [permissionAuditOpen, setPermissionAuditOpen] = useState(false);
   const [suspensionEnabled, setSuspensionEnabled] = useState(bootstrap.global.suspensionEnabled);
   const [sidebarWidth, setSidebarWidth] = useState(bootstrap.global.sidebarWidth);
   const [profiles, setProfiles] = useState<BrowserProfile[]>(bootstrap.global.profiles);
@@ -1420,6 +1435,12 @@ export function App() {
       case "Manage extensions":
         setExtensionsModalOpen(true);
         break;
+      case "Password manager":
+        setPasswordsModalOpen(true);
+        break;
+      case "Permission audit":
+        setPermissionAuditOpen(true);
+        break;
       case "Toggle AI panel":
         setAiPanelIntent("chat");
         setAiOpen((current) => !current);
@@ -1458,6 +1479,7 @@ export function App() {
   const activeSpaceId = activeTab?.spaceId ?? spaces[0]?.id;
   const currentIntel = activeTab ? pageIntel[activeTab.id] : undefined;
   const canRefresh = activeTab?.kind === "web" && !activeTab.suspended;
+  const storeInstallUrl = activeTab?.kind === "web" ? parseChromeWebStoreUrl(activeTab.url) : null;
 
   const handleGoBack = () => {
     const webview = webviewRef.current;
@@ -1483,6 +1505,19 @@ export function App() {
     webview.reload();
   };
 
+  const handleInstallFromStore = () => {
+    if (!storeInstallUrl) {
+      addToast("Open a Chrome Web Store extension page first.");
+      return;
+    }
+    void window.lumen.extensions.installFromWebStore(activeProfileId, storeInstallUrl).then(() => {
+      setExtensionsModalOpen(true);
+      addToast("Extension install attempted. Check Extensions manager.");
+    }).catch((error) => {
+      addToast(error instanceof Error ? error.message : "Chrome Web Store install failed");
+    });
+  };
+
   return (
     <div className="app-root">
       <TitleBar
@@ -1500,6 +1535,8 @@ export function App() {
         onGoBack={handleGoBack}
         onGoForward={handleGoForward}
         onRefresh={handleRefresh}
+        canInstallStoreExtension={Boolean(storeInstallUrl)}
+        onInstallStoreExtension={handleInstallFromStore}
         urlValue={urlValue}
         activeUrl={activeTab?.kind === "web" ? activeTab.url : ""}
         addressSuggestions={addressSuggestions}
@@ -1639,7 +1676,19 @@ export function App() {
       <ExtensionsModal
         open={extensionsModalOpen}
         profileId={activeProfileId}
+        initialStoreUrl={storeInstallUrl ?? undefined}
         onClose={() => setExtensionsModalOpen(false)}
+      />
+
+      <PasswordManagerModal
+        open={passwordsModalOpen}
+        profileId={activeProfileId}
+        onClose={() => setPasswordsModalOpen(false)}
+      />
+
+      <PermissionAuditModal
+        open={permissionAuditOpen}
+        onClose={() => setPermissionAuditOpen(false)}
       />
 
       <ProfileGate

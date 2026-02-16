@@ -954,6 +954,18 @@
   padding: 12px;
 }
 
+.passwords-modal,
+.permissions-modal {
+  width: min(900px, 95vw);
+  max-height: min(760px, 92vh);
+  overflow: auto;
+  border-radius: var(--radius-window);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  padding: 12px;
+}
+
 .extensions-header {
   display: flex;
   justify-content: space-between;
@@ -968,8 +980,42 @@
 
 .extensions-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 10px 0;
+}
+
+.extensions-store-form,
+.password-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.password-form {
+  grid-template-columns: 1fr 1fr;
+}
+
+.extensions-store-form input,
+.password-form input {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  padding: 0 10px;
+  min-height: 34px;
+  font-family: var(--font-primary);
+  font-size: 13px;
+}
+
+.extensions-store-form button {
+  min-height: 34px;
+}
+
+.password-form .extensions-actions {
+  grid-column: 1 / -1;
+  margin-top: 0;
 }
 
 .extensions-list {
@@ -991,6 +1037,12 @@
 .extensions-name {
   font-size: 14px;
   margin-bottom: 2px;
+}
+
+.permissions-modal h3 {
+  margin: 12px 0 8px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .profile-gate-overlay {

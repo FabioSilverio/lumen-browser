@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Command, Minus, PanelLeft, RotateCw, Square, SquareStack, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Command, Download, Minus, PanelLeft, RotateCw, Square, SquareStack, X } from "lucide-react";
 import { UrlBar } from "./UrlBar";
 import { BrowserProfile } from "../types";
 
@@ -15,9 +15,11 @@ interface TitleBarProps {
   canGoBack: boolean;
   canGoForward: boolean;
   canRefresh: boolean;
+  canInstallStoreExtension: boolean;
   onGoBack: () => void;
   onGoForward: () => void;
   onRefresh: () => void;
+  onInstallStoreExtension: () => void;
   urlValue: string;
   activeUrl: string;
   addressSuggestions: string[];
@@ -41,9 +43,11 @@ export function TitleBar({
   canGoBack,
   canGoForward,
   canRefresh,
+  canInstallStoreExtension,
   onGoBack,
   onGoForward,
   onRefresh,
+  onInstallStoreExtension,
   urlValue,
   activeUrl,
   addressSuggestions,
@@ -96,6 +100,14 @@ export function TitleBar({
           </button>
           <button className="icon-button" onClick={onRefresh} disabled={!canRefresh} title="Refresh">
             <RotateCw size={13} strokeWidth={1.9} />
+          </button>
+          <button
+            className="icon-button"
+            onClick={onInstallStoreExtension}
+            disabled={!canInstallStoreExtension}
+            title="Install extension from current Chrome Web Store page"
+          >
+            <Download size={13} strokeWidth={1.9} />
           </button>
         </div>
         <UrlBar

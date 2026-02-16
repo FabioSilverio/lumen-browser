@@ -5,7 +5,10 @@ import { registerSystemIpc } from "./ipc/system";
 import { registerAIIpc } from "./ipc/ai";
 import { registerBrowserIpc } from "./ipc/browser";
 import { registerExtensionsIpc } from "./ipc/extensions";
+import { registerPasswordIpc } from "./ipc/passwords";
+import { registerSecurityIpc } from "./ipc/security";
 import { applyBrowserSecurity } from "./security";
+import { PermissionAuditStore } from "./services/permission-audit-store";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
@@ -142,20 +145,23 @@ async function bootstrap(): Promise<void> {
   await app.whenReady();
 
   nativeTheme.themeSource = "light";
+  const permissionAuditStore = new PermissionAuditStore();
 
   const mainWindow = createMainWindow();
-  applyBrowserSecurity(mainWindow);
+  applyBrowserSecurity(mainWindow, permissionAuditStore);
 
   registerWindowIpc(mainWindow);
   registerSystemIpc();
   registerBrowserIpc();
   registerExtensionsIpc();
+  registerPasswordIpc();
+  registerSecurityIpc(permissionAuditStore);
   registerAIIpc(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const window = createMainWindow();
-      applyBrowserSecurity(window);
+      applyBrowserSecurity(window, permissionAuditStore);
       registerWindowIpc(window);
       registerAIIpc(window);
     }

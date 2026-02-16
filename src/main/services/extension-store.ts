@@ -3,11 +3,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 interface ExtensionStorePayload {
-  unpackedPaths: string[];
+  byProfile: Record<string, string[]>;
 }
 
 const DEFAULT_PAYLOAD: ExtensionStorePayload = {
-  unpackedPaths: []
+  byProfile: {}
 };
 
 export class ExtensionStore {
@@ -20,11 +20,23 @@ export class ExtensionStore {
       }
 
       const raw = readFileSync(this.path, "utf-8");
-      const parsed = JSON.parse(raw) as Partial<ExtensionStorePayload>;
+      const parsed = JSON.parse(raw) as Partial<ExtensionStorePayload & { unpackedPaths?: string[] }>;
+      if (Array.isArray(parsed.unpackedPaths)) {
+        return {
+          byProfile: {
+            default: parsed.unpackedPaths.filter((value): value is string => typeof value === "string")
+          }
+        };
+      }
+
+      const byProfile = parsed.byProfile ?? {};
       return {
-        unpackedPaths: Array.isArray(parsed.unpackedPaths)
-          ? parsed.unpackedPaths.filter((value): value is string => typeof value === "string")
-          : []
+        byProfile: Object.fromEntries(
+          Object.entries(byProfile).map(([profileId, values]) => [
+            profileId,
+            Array.isArray(values) ? values.filter((value): value is string => typeof value === "string") : []
+          ])
+        )
       };
     } catch {
       return DEFAULT_PAYLOAD;
