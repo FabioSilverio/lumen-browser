@@ -117,7 +117,11 @@ function createAITab(spaceId: string, query: string, label: string): BrowserTab 
     aiQuery: cleanQuery,
     aiProviderLabel: label,
     aiResponse: "",
-    aiLoading: true
+    aiLoading: true,
+    aiMessages: [
+      { role: "user", content: cleanQuery },
+      { role: "assistant", content: "" }
+    ]
   };
 }
 
@@ -187,6 +191,44 @@ function parseAddressAI(
   const [prefix = "@", ...rest] = raw.split(/\s+/);
   const lowerPrefix = prefix.toLowerCase();
   const remaining = rest.join(" ").trim();
+
+  if (lowerPrefix === "@" && rest.length) {
+    const [inlineCommand = "", ...inlineRest] = rest;
+    const inlineLower = inlineCommand.toLowerCase();
+    const inlineQuery = inlineRest.join(" ").trim();
+
+    if (inlineLower === "chat") {
+      return inlineQuery ? { query: inlineQuery, label: "AI" } : null;
+    }
+
+    if (inlineLower === "gpt" || inlineLower === "openai") {
+      return inlineQuery ? { query: inlineQuery, providerOverride: "openai", label: "AI (openai)" } : null;
+    }
+
+    if (inlineLower === "claude" || inlineLower === "anthropic") {
+      return inlineQuery ? { query: inlineQuery, providerOverride: "anthropic", label: "AI (claude)" } : null;
+    }
+
+    if (inlineLower === "grok" || inlineLower === "xai") {
+      return inlineQuery ? { query: inlineQuery, providerOverride: "xai", label: "AI (grok)" } : null;
+    }
+
+    if (inlineLower === "qwen") {
+      return inlineQuery
+        ? { query: inlineQuery, providerOverride: "openrouter", modelOverride: "qwen/qwen3-coder:free", label: "AI (qwen)" }
+        : null;
+    }
+
+    if (inlineLower === "kimi") {
+      return inlineQuery
+        ? { query: inlineQuery, providerOverride: "openrouter", modelOverride: "moonshotai/kimi-k2:free", label: "AI (kimi)" }
+        : null;
+    }
+
+    if (inlineLower === "openclaw" || inlineLower === "claw") {
+      return inlineQuery ? { query: inlineQuery, providerOverride: "openclaw", label: "AI (openclaw)" } : null;
+    }
+  }
 
   if (lowerPrefix === "@" || lowerPrefix === "@chat") {
     return remaining ? { query: remaining, label: "AI" } : null;
@@ -407,6 +449,7 @@ export function App() {
   const [sidebarPinned, setSidebarPinned] = useState(bootstrap.global.sidebarPinned);
   const [sidebarPeek, setSidebarPeek] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [aiPanelIntent, setAiPanelIntent] = useState<"chat" | "settings">("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskManagerOpen, setTaskManagerOpen] = useState(false);
   const [suspensionEnabled, setSuspensionEnabled] = useState(bootstrap.global.suspensionEnabled);
@@ -425,7 +468,7 @@ export function App() {
 
   const hoverTimerRef = useRef<number | null>(null);
   const webviewRef = useRef<Electron.WebviewTag | null>(null);
-  const urlBarAIRequestMap = useRef<Map<string, string>>(new Map());
+  const aiTabRequestMap = useRef<Map<string, { tabId: string; messageIndex: number }>>(new Map());
   const pendingAIMap = useRef<Map<string, PendingAI>>(new Map());
 
   const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId), [tabs, activeTabId]);
@@ -560,15 +603,13 @@ export function App() {
 
   useEffect(() => {
     if (activeTab) {
-      if (activeTab.kind === "ai" && activeTab.aiQuery) {
-        setUrlValue(`@chat ${activeTab.aiQuery}`);
-      } else if (activeTab.kind === "welcome") {
+      if (activeTab.kind === "ai" || activeTab.kind === "welcome") {
         setUrlValue("");
       } else {
         setUrlValue(activeTab.url);
       }
     }
-  }, [activeTab?.id, activeTab?.url, activeTab?.kind, activeTab?.aiQuery]);
+  }, [activeTab?.id, activeTab?.url, activeTab?.kind]);
 
   useEffect(() => {
     const query = urlValue.trim();
@@ -580,6 +621,8 @@ export function App() {
     const timer = window.setTimeout(() => {
       void window.lumen.browser.getAddressSuggestions(query).then((items) => {
         setProviderSuggestions(items);
+      }).catch(() => {
+        setProviderSuggestions([]);
       });
     }, 160);
 
@@ -614,15 +657,20 @@ export function App() {
 
   useEffect(() => {
     return window.lumen.ai.onStream((payload) => {
-      const aiTabId = urlBarAIRequestMap.current.get(payload.requestId);
-      if (aiTabId) {
+      const aiRequest = aiTabRequestMap.current.get(payload.requestId);
+      if (aiRequest) {
         if (payload.token) {
           setTabs((prev) =>
             prev.map((tab) =>
-              tab.id === aiTabId
+              tab.id === aiRequest.tabId
                 ? {
                   ...tab,
                   aiResponse: `${tab.aiResponse ?? ""}${payload.token}`,
+                  aiMessages: (tab.aiMessages ?? []).map((message, index) =>
+                    index === aiRequest.messageIndex
+                      ? { ...message, content: `${message.content}${payload.token}` }
+                      : message
+                  ),
                   aiLoading: true
                 }
                 : tab
@@ -633,12 +681,19 @@ export function App() {
         if (payload.done) {
           setTabs((prev) =>
             prev.map((tab) =>
-              tab.id === aiTabId
+              tab.id === aiRequest.tabId
                 ? {
                   ...tab,
                   aiLoading: false,
                   aiError: payload.error,
-                  aiResponse: payload.error ? (tab.aiResponse || payload.error) : tab.aiResponse
+                  aiResponse: payload.error ? (tab.aiResponse || payload.error) : tab.aiResponse,
+                  aiMessages: payload.error
+                    ? (tab.aiMessages ?? []).map((message, index) =>
+                      index === aiRequest.messageIndex && !message.content
+                        ? { ...message, content: payload.error ?? "AI request failed" }
+                        : message
+                    )
+                    : tab.aiMessages
                 }
                 : tab
             )
@@ -648,7 +703,7 @@ export function App() {
             addToast(payload.error);
           }
 
-          urlBarAIRequestMap.current.delete(payload.requestId);
+          aiTabRequestMap.current.delete(payload.requestId);
         }
       }
 
@@ -681,6 +736,7 @@ export function App() {
       }
 
       if (payload.action === "ask") {
+        setAiPanelIntent("chat");
         setAiOpen(true);
         setQueuedPrompt({
           id: crypto.randomUUID(),
@@ -708,6 +764,7 @@ export function App() {
       }
 
       if (payload.action === "eli5") {
+        setAiPanelIntent("chat");
         setAiOpen(true);
         setQueuedPrompt({
           id: crypto.randomUUID(),
@@ -719,6 +776,7 @@ export function App() {
 
       if (payload.action.startsWith("translate:")) {
         const language = payload.action.split(":")[1] ?? "English";
+        setAiPanelIntent("chat");
         setAiOpen(true);
         setQueuedPrompt({
           id: crypto.randomUUID(),
@@ -729,6 +787,7 @@ export function App() {
       }
 
       if (payload.action === "rewrite") {
+        setAiPanelIntent("chat");
         setAiOpen(true);
         setQueuedPrompt({
           id: crypto.randomUUID(),
@@ -1006,6 +1065,7 @@ export function App() {
     setTabs((prev) => [...prev, aiTab]);
     setActiveTabId(aiTab.id);
     setUrlFocused(false);
+    setUrlValue("");
     setProviderSuggestions([]);
 
     try {
@@ -1023,13 +1083,20 @@ export function App() {
         ]
       });
 
-      urlBarAIRequestMap.current.set(response.requestId, aiTab.id);
+      aiTabRequestMap.current.set(response.requestId, {
+        tabId: aiTab.id,
+        messageIndex: 1
+      });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "AI request failed";
       updateTab(aiTab.id, (tab) => ({
         ...tab,
         aiLoading: false,
-        aiError: error instanceof Error ? error.message : "AI request failed",
-        aiResponse: error instanceof Error ? error.message : "AI request failed"
+        aiError: message,
+        aiResponse: message,
+        aiMessages: (tab.aiMessages ?? []).map((item, index) =>
+          index === 1 ? { ...item, content: message } : item
+        )
       }));
     }
   }
@@ -1037,6 +1104,61 @@ export function App() {
   const handleAcceptAddressSuggestion = (value: string) => {
     navigateToAddress(value);
   };
+
+  async function handleSendAITabMessage(tabId: string, text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const target = tabs.find((tab) => tab.id === tabId);
+    if (!target || target.kind !== "ai") {
+      return;
+    }
+
+    const nextMessages = [
+      ...(target.aiMessages ?? []),
+      { role: "user" as const, content: trimmed },
+      { role: "assistant" as const, content: "" }
+    ];
+    const responseIndex = nextMessages.length - 1;
+
+    updateTab(tabId, (tab) => ({
+      ...tab,
+      aiMessages: nextMessages,
+      aiLoading: true,
+      aiError: undefined,
+      aiResponse: ""
+    }));
+
+    try {
+      const response = await window.lumen.ai.startChat({
+        conversationId: `url-bar-${tabId}`,
+        feature: "chat",
+        maxTokens: 900,
+        messages: nextMessages.map((message) => ({
+          role: message.role,
+          content: message.content
+        }))
+      });
+
+      aiTabRequestMap.current.set(response.requestId, {
+        tabId,
+        messageIndex: responseIndex
+      });
+    } catch (error) {
+      updateTab(tabId, (tab) => ({
+        ...tab,
+        aiLoading: false,
+        aiError: error instanceof Error ? error.message : "AI request failed",
+        aiMessages: (tab.aiMessages ?? []).map((message, index) =>
+          index === responseIndex
+            ? { ...message, content: error instanceof Error ? error.message : "AI request failed" }
+            : message
+        )
+      }));
+    }
+  }
 
   const handleNavigate = async () => {
     const raw = urlValue.trim();
@@ -1226,6 +1348,7 @@ export function App() {
         setTaskManagerOpen(true);
         break;
       case "Toggle AI panel":
+        setAiPanelIntent("chat");
         setAiOpen((current) => !current);
         break;
       case "Suggest stale tabs":
@@ -1274,7 +1397,7 @@ export function App() {
         onToggleSidebarPin={() => setSidebarPinned((current) => !current)}
         onOpenCommandPalette={() => setPaletteOpen(true)}
         urlValue={urlValue}
-        activeUrl={activeTab?.kind === "welcome" ? "" : activeTab?.url ?? ""}
+        activeUrl={activeTab?.kind === "web" ? activeTab.url : ""}
         addressSuggestions={addressSuggestions}
         urlFocused={urlFocused}
         onUrlFocusChange={setUrlFocused}
@@ -1313,8 +1436,14 @@ export function App() {
           }}
           onToggleSidebarPin={() => setSidebarPinned((current) => !current)}
           onResizeWidth={(width) => setSidebarWidth(Math.min(420, Math.max(180, width)))}
-          onOpenAI={() => setAiOpen(true)}
-          onOpenSettings={() => setAiOpen(true)}
+          onOpenAI={() => {
+            setAiPanelIntent("chat");
+            setAiOpen(true);
+          }}
+          onOpenSettings={() => {
+            setAiPanelIntent("settings");
+            setAiOpen(true);
+          }}
         />
 
         <main className="content-area">
@@ -1341,6 +1470,7 @@ export function App() {
             onTitleChange={(title) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, title }))}
             onUrlChange={(url) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, url }))}
             onFaviconChange={(favicon) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, favicon }))}
+            onSendAIMessage={handleSendAITabMessage}
             onStartBrowsing={(seedUrl) => {
               if (!activeTab) {
                 return;
@@ -1360,6 +1490,7 @@ export function App() {
 
         <AIPanel
           open={aiOpen}
+          intent={aiPanelIntent}
           activeTab={activeTab}
           queuedPrompt={queuedPrompt}
           onQueuedPromptHandled={() => setQueuedPrompt(null)}

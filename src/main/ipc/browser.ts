@@ -22,11 +22,27 @@ export function registerBrowserIpc(): void {
         return [] as string[];
       }
 
-      const parsed = (await response.json()) as DuckSuggestion[];
-      const phrases = parsed
-        .map((item) => item.phrase?.trim() ?? "")
-        .filter(Boolean)
-        .slice(0, 6);
+      const parsed = (await response.json()) as unknown;
+      let phrases: string[] = [];
+      if (Array.isArray(parsed)) {
+        const first = parsed[0];
+        if (typeof first === "string") {
+          // New DuckDuckGo format: [query, ["suggestion1", ...]]
+          const list = parsed[1];
+          if (Array.isArray(list)) {
+            phrases = list
+              .map((item) => (typeof item === "string" ? item.trim() : ""))
+              .filter(Boolean)
+              .slice(0, 6);
+          }
+        } else {
+          // Legacy format: [{ phrase: "..." }, ...]
+          phrases = (parsed as DuckSuggestion[])
+            .map((item) => item.phrase?.trim() ?? "")
+            .filter(Boolean)
+            .slice(0, 6);
+        }
+      }
 
       return [...new Set(phrases)];
     } catch {

@@ -38,6 +38,10 @@ export interface BrowserTab {
   aiResponse?: string;
   aiLoading?: boolean;
   aiError?: string;
+  aiMessages?: Array<{
+    role: "user" | "assistant";
+    content: string;
+  }>;
 }
 
 export interface TabSpace {

@@ -56,13 +56,25 @@ export function UrlBar({
 
     const trimmed = value.trim();
     if (trimmed.startsWith("@")) {
-      const [prefix] = trimmed.split(/\s+/);
-      if (!prefix) {
+      const tokens = trimmed.split(/\s+/).filter(Boolean);
+      const first = tokens[0] ?? "@";
+      const second = tokens[1] ?? "";
+      const hasQueryAfterCommand = first === "@" ? tokens.length > 2 : tokens.length > 1;
+
+      if (hasQueryAfterCommand) {
+        return [];
+      }
+
+      const commandPrefix = first === "@"
+        ? `@${second.toLowerCase()}`
+        : first.toLowerCase();
+
+      if (!commandPrefix || commandPrefix === "@") {
         return AI_COMMANDS.map((cmd) => ({ value: cmd, kind: "command" }));
       }
 
       return AI_COMMANDS
-        .filter((cmd) => cmd.startsWith(prefix.toLowerCase()))
+        .filter((cmd) => cmd.startsWith(commandPrefix))
         .slice(0, 6)
         .map((cmd) => ({ value: cmd, kind: "command" }));
     }
@@ -72,8 +84,8 @@ export function UrlBar({
 
   const applyCommand = (command: string) => {
     const trimmed = value.trim();
-    const parts = trimmed.split(/\s+/);
-    const tail = parts.length > 1 ? parts.slice(1).join(" ") : "";
+    const match = trimmed.match(/^@\s*(\S*)\s*(.*)$/);
+    const tail = match ? (match[2] ?? "").trim() : "";
     onChange(tail ? `${command} ${tail}` : `${command} `);
     setSelectedSuggestion(0);
   };

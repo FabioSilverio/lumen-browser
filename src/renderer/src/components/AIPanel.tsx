@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Square, X } from "lucide-react";
+import { Settings2, Square, X } from "lucide-react";
 import { AIChatFeature, AIPanelSettings, AIProvider, AIUsage, BrowserTab, ChatMessage } from "../types";
 
 interface PromptSeed {
@@ -10,6 +10,7 @@ interface PromptSeed {
 
 interface AIPanelProps {
   open: boolean;
+  intent: "chat" | "settings";
   activeTab: BrowserTab | undefined;
   queuedPrompt: PromptSeed | null;
   onQueuedPromptHandled: () => void;
@@ -40,6 +41,7 @@ const EMPTY_USAGE: AIUsage = {
 
 export function AIPanel({
   open,
+  intent,
   activeTab,
   queuedPrompt,
   onQueuedPromptHandled,
@@ -60,6 +62,7 @@ export function AIPanel({
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const [settingsExpanded, setSettingsExpanded] = useState(false);
   const requestMap = useRef<Map<string, string>>(new Map());
 
   const loadConfig = async () => {
@@ -78,6 +81,13 @@ export function AIPanel({
 
     void loadConfig();
   }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setSettingsExpanded(intent === "settings");
+  }, [open, intent]);
 
   useEffect(() => {
     return window.lumen.ai.onStream((payload) => {
@@ -249,10 +259,15 @@ export function AIPanel({
     <aside className={`ai-panel ${open ? "open" : ""}`}>
       <div className="ai-header">
         <h2>AI</h2>
-        <button className="icon-button" onClick={onClose}><X size={14} strokeWidth={1.8} /></button>
+        <div className="ai-header-actions">
+          <button className={`icon-button ${settingsExpanded ? "active" : ""}`} onClick={() => setSettingsExpanded((v) => !v)} title="AI settings">
+            <Settings2 size={14} strokeWidth={1.8} />
+          </button>
+          <button className="icon-button" onClick={onClose}><X size={14} strokeWidth={1.8} /></button>
+        </div>
       </div>
 
-      {settings && (
+      {settings && settingsExpanded ? (
         <section className="ai-settings">
           <label>
             Provider
@@ -351,7 +366,7 @@ export function AIPanel({
 
           {connectionMessage && <p className="helper-text">{connectionMessage}</p>}
         </section>
-      )}
+      ) : null}
 
       <section className="ai-usage">
         <div className="usage-title">Daily cost</div>
@@ -385,6 +400,11 @@ export function AIPanel({
       </section>
 
       <section className="ai-chat">
+        {!hasApiKey ? (
+          <div className="helper-text" style={{ padding: "10px 12px 0" }}>
+            No API key configured. Open settings (gear icon) to connect AI.
+          </div>
+        ) : null}
         <div className="ai-messages">
           {messages.map((message) => (
             <article key={message.id} className={`chat-row ${message.role}`}>

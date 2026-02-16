@@ -1,4 +1,4 @@
-import { MutableRefObject, useEffect } from "react";
+import { FormEvent, MutableRefObject, useEffect, useState } from "react";
 import { BrowserTab } from "../types";
 
 interface WebViewportProps {
@@ -9,6 +9,7 @@ interface WebViewportProps {
   onUrlChange: (url: string) => void;
   onFaviconChange: (favicon: string) => void;
   onRestoreTab: () => void;
+  onSendAIMessage: (tabId: string, text: string) => Promise<void>;
   onStartBrowsing: (url: string) => void;
 }
 
@@ -20,8 +21,15 @@ export function WebViewport({
   onUrlChange,
   onFaviconChange,
   onRestoreTab,
+  onSendAIMessage,
   onStartBrowsing
 }: WebViewportProps) {
+  const [aiInput, setAiInput] = useState("");
+
+  useEffect(() => {
+    setAiInput("");
+  }, [tab?.id]);
+
   useEffect(() => {
     if (!tab || tab.suspended || tab.kind === "ai") {
       return;
@@ -90,6 +98,8 @@ export function WebViewport({
   }
 
   if (tab.kind === "ai") {
+    const conversation = tab.aiMessages ?? [];
+
     return (
       <section className="viewport ai-tab-view">
         <header className="ai-tab-head">
@@ -98,12 +108,42 @@ export function WebViewport({
         </header>
 
         <article className="ai-tab-content">
-          {tab.aiLoading && !(tab.aiResponse || "").trim() ? (
+          {conversation.length ? (
+            conversation.map((message, index) => (
+              <div key={`${message.role}-${index}`} className={`ai-tab-message ${message.role}`}>
+                <div className="ai-tab-message-role">{message.role === "user" ? "You" : "AI"}</div>
+                <div className="ai-tab-message-content">
+                  {message.content || (tab.aiLoading && message.role === "assistant" ? "Thinking..." : "")}
+                </div>
+              </div>
+            ))
+          ) : tab.aiLoading ? (
             <p className="ai-tab-placeholder">Thinking...</p>
           ) : (
             <pre>{tab.aiResponse || tab.aiError || "No response yet."}</pre>
           )}
         </article>
+
+        <form
+          className="ai-tab-input"
+          onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            if (!aiInput.trim()) {
+              return;
+            }
+            void onSendAIMessage(tab.id, aiInput.trim());
+            setAiInput("");
+          }}
+        >
+          <input
+            value={aiInput}
+            onChange={(event) => setAiInput(event.target.value)}
+            placeholder="Reply to continue this AI conversation"
+          />
+          <button className="primary-button" type="submit" disabled={tab.aiLoading}>
+            Send
+          </button>
+        </form>
       </section>
     );
   }
