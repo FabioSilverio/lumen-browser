@@ -1,4 +1,4 @@
-export type AIProvider = "openai" | "anthropic" | "xai";
+export type AIProvider = "openai" | "anthropic" | "xai" | "openrouter" | "openclaw";
 export type AIChatFeature = "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search";
 
 export interface AIPanelSettings {
@@ -26,12 +26,18 @@ export interface BrowserTab {
   id: string;
   title: string;
   url: string;
+  kind?: "web" | "ai";
   favicon?: string;
   pinned: boolean;
   suspended: boolean;
   lastActiveAt: number;
   createdAt: number;
   spaceId: string;
+  aiQuery?: string;
+  aiProviderLabel?: string;
+  aiResponse?: string;
+  aiLoading?: boolean;
+  aiError?: string;
 }
 
 export interface TabSpace {

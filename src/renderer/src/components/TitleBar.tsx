@@ -4,6 +4,7 @@ import { UrlBar } from "./UrlBar";
 
 interface TitleBarProps {
   sidebarPinned: boolean;
+  activeTabId?: string;
   onToggleSidebarPin: () => void;
   onOpenCommandPalette: () => void;
   urlValue: string;
@@ -17,6 +18,7 @@ interface TitleBarProps {
 
 export function TitleBar({
   sidebarPinned,
+  activeTabId,
   onToggleSidebarPin,
   onOpenCommandPalette,
   urlValue,
@@ -50,6 +52,7 @@ export function TitleBar({
       <div className="title-center no-drag">
         <UrlBar
           compact
+          dragTabId={activeTabId}
           value={urlValue}
           activeUrl={activeUrl}
           focused={urlFocused}

@@ -21,6 +21,7 @@ interface AppSession {
   theme: "light" | "dark";
   sidebarPinned: boolean;
   suspensionEnabled: boolean;
+  sidebarWidth: number;
 }
 
 interface PageIntel {
@@ -62,11 +63,33 @@ function createTab(spaceId: string, url = "https://duckduckgo.com", title = "New
     id: crypto.randomUUID(),
     title,
     url,
+    kind: "web",
     pinned: false,
     suspended: false,
     lastActiveAt: Date.now(),
     createdAt: Date.now(),
     spaceId
+  };
+}
+
+function createAITab(spaceId: string, query: string, label: string): BrowserTab {
+  const cleanQuery = query.trim();
+  const clipped = cleanQuery.length > 42 ? `${cleanQuery.slice(0, 42)}...` : cleanQuery;
+
+  return {
+    id: crypto.randomUUID(),
+    title: `AI: ${clipped || "New query"}`,
+    url: "lumen://ai",
+    kind: "ai",
+    pinned: false,
+    suspended: false,
+    lastActiveAt: Date.now(),
+    createdAt: Date.now(),
+    spaceId,
+    aiQuery: cleanQuery,
+    aiProviderLabel: label,
+    aiResponse: "",
+    aiLoading: true
   };
 }
 
@@ -91,7 +114,9 @@ function normalizeAddress(input: string): string {
   return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
 }
 
-function parseAddressAI(rawInput: string): { query: string; providerOverride?: AIProvider; label: string } | null {
+function parseAddressAI(
+  rawInput: string
+): { query: string; providerOverride?: AIProvider; modelOverride?: string; label: string } | null {
   const raw = rawInput.trim();
   if (!raw) {
     return null;
@@ -129,6 +154,22 @@ function parseAddressAI(rawInput: string): { query: string; providerOverride?: A
 
   if (lowerPrefix === "@grok" || lowerPrefix === "@xai") {
     return remaining ? { query: remaining, providerOverride: "xai", label: "AI (grok)" } : null;
+  }
+
+  if (lowerPrefix === "@qwen") {
+    return remaining
+      ? { query: remaining, providerOverride: "openrouter", modelOverride: "qwen/qwen3-coder:free", label: "AI (qwen)" }
+      : null;
+  }
+
+  if (lowerPrefix === "@kimi") {
+    return remaining
+      ? { query: remaining, providerOverride: "openrouter", modelOverride: "moonshotai/kimi-k2:free", label: "AI (kimi)" }
+      : null;
+  }
+
+  if (lowerPrefix === "@openclaw" || lowerPrefix === "@claw") {
+    return remaining ? { query: remaining, providerOverride: "openclaw", label: "AI (openclaw)" } : null;
   }
 
   const fallback = raw.slice(1).trim();
@@ -185,7 +226,8 @@ function loadInitialSession(): AppSession {
         activeTabId: fallbackTab.id,
         theme: "light",
         sidebarPinned: true,
-        suspensionEnabled: true
+        suspensionEnabled: true,
+        sidebarWidth: 240
       };
     }
 
@@ -193,7 +235,11 @@ function loadInitialSession(): AppSession {
     const spaces = parsed.spaces?.length ? parsed.spaces : fallbackSpaces;
     const defaultSpaceId = spaces[0]?.id ?? firstSpaceId;
     const tabs = parsed.tabs?.length
-      ? parsed.tabs.map((tab) => ({ ...tab, spaceId: tab.spaceId || defaultSpaceId }))
+      ? parsed.tabs.map((tab) => ({
+        ...tab,
+        kind: tab.kind ?? "web",
+        spaceId: tab.spaceId || defaultSpaceId
+      }))
       : [fallbackTab];
     const activeTabId = tabs.some((tab) => tab.id === parsed.activeTabId)
       ? parsed.activeTabId ?? tabs[0]?.id ?? fallbackTab.id
@@ -205,7 +251,8 @@ function loadInitialSession(): AppSession {
       activeTabId,
       theme: parsed.theme === "dark" ? "dark" : "light",
       sidebarPinned: parsed.sidebarPinned ?? true,
-      suspensionEnabled: parsed.suspensionEnabled ?? true
+      suspensionEnabled: parsed.suspensionEnabled ?? true,
+      sidebarWidth: typeof parsed.sidebarWidth === "number" ? Math.min(420, Math.max(180, parsed.sidebarWidth)) : 240
     };
   } catch {
     return {
@@ -214,7 +261,8 @@ function loadInitialSession(): AppSession {
       activeTabId: fallbackTab.id,
       theme: "light",
       sidebarPinned: true,
-      suspensionEnabled: true
+      suspensionEnabled: true,
+      sidebarWidth: 240
     };
   }
 }
@@ -233,7 +281,7 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskManagerOpen, setTaskManagerOpen] = useState(false);
   const [suspensionEnabled, setSuspensionEnabled] = useState(initialSession.suspensionEnabled);
-  const [inlineAI, setInlineAI] = useState<{ requestId: string; text: string; loading: boolean; label: string } | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(initialSession.sidebarWidth);
   const [queuedPrompt, setQueuedPrompt] = useState<{
     id: string;
     text: string;
@@ -245,7 +293,7 @@ export function App() {
 
   const hoverTimerRef = useRef<number | null>(null);
   const webviewRef = useRef<Electron.WebviewTag | null>(null);
-  const inlineRequestIdRef = useRef<string | null>(null);
+  const urlBarAIRequestMap = useRef<Map<string, string>>(new Map());
   const pendingAIMap = useRef<Map<string, PendingAI>>(new Map());
 
   const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId), [tabs, activeTabId]);
@@ -297,6 +345,10 @@ export function App() {
 
   const runPageIntelligence = useCallback(async () => {
     if (!activeTab) {
+      return;
+    }
+    if (activeTab.kind === "ai") {
+      addToast("Page intelligence is not available on AI result tabs.");
       return;
     }
 
@@ -355,9 +407,13 @@ export function App() {
 
   useEffect(() => {
     if (activeTab) {
-      setUrlValue(activeTab.url);
+      if (activeTab.kind === "ai" && activeTab.aiQuery) {
+        setUrlValue(`@chat ${activeTab.aiQuery}`);
+      } else {
+        setUrlValue(activeTab.url);
+      }
     }
-  }, [activeTab?.id, activeTab?.url]);
+  }, [activeTab?.id, activeTab?.url, activeTab?.kind, activeTab?.aiQuery]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -366,40 +422,55 @@ export function App() {
   useEffect(() => {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ tabs, spaces, activeTabId, theme, sidebarPinned, suspensionEnabled } satisfies AppSession)
+      JSON.stringify({
+        tabs,
+        spaces,
+        activeTabId,
+        theme,
+        sidebarPinned,
+        suspensionEnabled,
+        sidebarWidth
+      } satisfies AppSession)
     );
-  }, [tabs, spaces, activeTabId, theme, sidebarPinned, suspensionEnabled]);
+  }, [tabs, spaces, activeTabId, theme, sidebarPinned, suspensionEnabled, sidebarWidth]);
 
   useEffect(() => {
     return window.lumen.ai.onStream((payload) => {
-      if (payload.requestId === inlineRequestIdRef.current) {
+      const aiTabId = urlBarAIRequestMap.current.get(payload.requestId);
+      if (aiTabId) {
         if (payload.token) {
-          setInlineAI((prev) =>
-            prev
-              ? {
-                ...prev,
-                text: `${prev.text}${payload.token}`
-              }
-              : prev
+          setTabs((prev) =>
+            prev.map((tab) =>
+              tab.id === aiTabId
+                ? {
+                  ...tab,
+                  aiResponse: `${tab.aiResponse ?? ""}${payload.token}`,
+                  aiLoading: true
+                }
+                : tab
+            )
           );
         }
 
         if (payload.done) {
-          setInlineAI((prev) =>
-            prev
-              ? {
-                ...prev,
-                loading: false,
-                text: payload.error ?? prev.text
-              }
-              : prev
+          setTabs((prev) =>
+            prev.map((tab) =>
+              tab.id === aiTabId
+                ? {
+                  ...tab,
+                  aiLoading: false,
+                  aiError: payload.error,
+                  aiResponse: payload.error ? (tab.aiResponse || payload.error) : tab.aiResponse
+                }
+                : tab
+            )
           );
 
           if (payload.error) {
             addToast(payload.error);
           }
 
-          inlineRequestIdRef.current = null;
+          urlBarAIRequestMap.current.delete(payload.requestId);
         }
       }
 
@@ -676,14 +747,21 @@ export function App() {
     const aiQuery = parseAddressAI(raw);
 
     if (aiQuery) {
-      const { query, providerOverride, label } = aiQuery;
+      const { query, providerOverride, modelOverride, label } = aiQuery;
+      const fallbackSpace = activeTab?.spaceId ?? spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
+      const aiTab = createAITab(fallbackSpace, query, label);
+
+      setTabs((prev) => [...prev, aiTab]);
+      setActiveTabId(aiTab.id);
+      setUrlFocused(false);
 
       try {
         const response = await window.lumen.ai.startChat({
-          conversationId: "url-bar",
+          conversationId: `url-bar-${aiTab.id}`,
           feature: "url_bar",
-          maxTokens: 300,
+          maxTokens: 900,
           providerOverride,
+          modelOverride,
           messages: [
             {
               role: "user",
@@ -692,15 +770,14 @@ export function App() {
           ]
         });
 
-        inlineRequestIdRef.current = response.requestId;
-        setInlineAI({ requestId: response.requestId, text: "", loading: true, label });
+        urlBarAIRequestMap.current.set(response.requestId, aiTab.id);
       } catch (error) {
-        setInlineAI({
-          requestId: "error",
-          text: error instanceof Error ? error.message : "AI request failed",
-          loading: false,
-          label
-        });
+        updateTab(aiTab.id, (tab) => ({
+          ...tab,
+          aiLoading: false,
+          aiError: error instanceof Error ? error.message : "AI request failed",
+          aiResponse: error instanceof Error ? error.message : "AI request failed"
+        }));
       }
 
       return;
@@ -712,13 +789,31 @@ export function App() {
       return;
     }
 
-    updateTab(activeTab.id, (tab) => ({
-      ...tab,
-      url: nextUrl,
-      title: "Loading...",
-      suspended: false,
-      lastActiveAt: Date.now()
-    }));
+    updateTab(activeTab.id, (tab) => {
+      if (tab.kind === "ai") {
+        return {
+          ...tab,
+          kind: "web",
+          url: nextUrl,
+          title: "Loading...",
+          suspended: false,
+          lastActiveAt: Date.now(),
+          aiQuery: undefined,
+          aiProviderLabel: undefined,
+          aiResponse: undefined,
+          aiLoading: undefined,
+          aiError: undefined
+        };
+      }
+
+      return {
+        ...tab,
+        url: nextUrl,
+        title: "Loading...",
+        suspended: false,
+        lastActiveAt: Date.now()
+      };
+    });
   };
 
   async function handleAutoGroupTabs() {
@@ -894,9 +989,6 @@ export function App() {
       case "Toggle AI panel":
         setAiOpen((current) => !current);
         break;
-      case "Clear inline AI response":
-        setInlineAI(null);
-        break;
       case "Suggest stale tabs":
         void handleSuggestStaleTabs();
         break;
@@ -932,6 +1024,7 @@ export function App() {
     <div className="app-root">
       <TitleBar
         sidebarPinned={sidebarPinned}
+        activeTabId={activeTab?.id}
         onToggleSidebarPin={() => setSidebarPinned((current) => !current)}
         onOpenCommandPalette={() => setPaletteOpen(true)}
         urlValue={urlValue}
@@ -949,6 +1042,7 @@ export function App() {
           spaces={spaces}
           activeTabId={activeTabId}
           expanded={sidebarExpanded}
+          sidebarWidth={sidebarWidth}
           pinned={sidebarPinned}
           onHoverChange={handleSidebarHoverChange}
           onSelectTab={handleSelectTab}
@@ -970,6 +1064,7 @@ export function App() {
             setSpaces((prev) => [...prev, createSpace(name, color)]);
           }}
           onToggleSidebarPin={() => setSidebarPinned((current) => !current)}
+          onResizeWidth={(width) => setSidebarWidth(Math.min(420, Math.max(180, width)))}
           onOpenAI={() => setAiOpen(true)}
           onOpenSettings={() => setAiOpen(true)}
         />
@@ -987,13 +1082,6 @@ export function App() {
                   <span key={topic} className="topic-tag">{topic}</span>
                 ))}
               </div>
-            </section>
-          )}
-
-          {inlineAI && (
-            <section className="inline-ai-card">
-              <div className="inline-ai-head">{inlineAI.label}</div>
-              <p>{inlineAI.loading && !inlineAI.text ? "Thinking..." : inlineAI.text}</p>
             </section>
           )}
 

@@ -1,3 +1,4 @@
+import { MouseEvent as ReactMouseEvent } from "react";
 import { Bot, ChevronDown, ChevronRight, FolderPlus, Globe2, MoonStar, Pin, PinOff, Plus, Settings2, X } from "lucide-react";
 import { BrowserTab, TabSpace } from "../types";
 
@@ -6,6 +7,7 @@ interface SidebarProps {
   spaces: TabSpace[];
   activeTabId: string;
   expanded: boolean;
+  sidebarWidth: number;
   pinned: boolean;
   onHoverChange: (hovered: boolean) => void;
   onSelectTab: (id: string) => void;
@@ -17,6 +19,7 @@ interface SidebarProps {
   onToggleSpaceCollapsed: (spaceId: string) => void;
   onAddSpace: () => void;
   onToggleSidebarPin: () => void;
+  onResizeWidth: (width: number) => void;
   onOpenAI: () => void;
   onOpenSettings: () => void;
 }
@@ -105,6 +108,7 @@ export function Sidebar({
   spaces,
   activeTabId,
   expanded,
+  sidebarWidth,
   pinned,
   onHoverChange,
   onSelectTab,
@@ -116,14 +120,37 @@ export function Sidebar({
   onToggleSpaceCollapsed,
   onAddSpace,
   onToggleSidebarPin,
+  onResizeWidth,
   onOpenAI,
   onOpenSettings
 }: SidebarProps) {
   const pinnedTabs = tabs.filter((tab) => tab.pinned);
 
+  const handleResizeStart = (event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      onResizeWidth(startWidth + delta);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   return (
     <aside
       className={`sidebar ${expanded ? "expanded" : "collapsed"}`}
+      style={expanded ? { width: `${sidebarWidth}px` } : undefined}
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => onHoverChange(false)}
     >
@@ -225,6 +252,8 @@ export function Sidebar({
           <Settings2 size={14} strokeWidth={1.8} />
         </button>
       </div>
+
+      {expanded ? <div className="sidebar-resizer" onMouseDown={handleResizeStart} /> : null}
     </aside>
   );
 }

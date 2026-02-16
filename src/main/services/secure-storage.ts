@@ -8,6 +8,13 @@ interface SecretsShape {
 }
 
 const EMPTY: SecretsShape = { apiKeys: {} };
+const ENV_KEYS: Record<AIProvider, string> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  xai: "XAI_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  openclaw: "OPENCLAW_GATEWAY_TOKEN"
+};
 
 export class SecureStorage {
   private readonly path = join(app.getPath("userData"), "secrets.json");
@@ -44,6 +51,12 @@ export class SecureStorage {
     const payload = this.read();
     const encrypted = payload.apiKeys[provider];
     if (!encrypted) {
+      const envKey = process.env[ENV_KEYS[provider]]?.trim() ?? "";
+      if (envKey) {
+        this.setAPIKey(provider, envKey);
+        return envKey;
+      }
+
       return "";
     }
 

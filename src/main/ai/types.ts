@@ -1,4 +1,4 @@
-export type AIProvider = "openai" | "anthropic" | "xai";
+export type AIProvider = "openai" | "anthropic" | "xai" | "openrouter" | "openclaw";
 export type AIChatFeature = "chat" | "url_bar" | "summary" | "tab_intelligence" | "context_menu" | "tab_search";
 
 export interface AISettings {

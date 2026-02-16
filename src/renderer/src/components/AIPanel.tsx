@@ -19,7 +19,9 @@ interface AIPanelProps {
 const PROVIDER_MODELS: Record<AIProvider, string[]> = {
   openai: ["gpt-5", "gpt-5-mini", "gpt-4.1", "o3", "o4-mini", "gpt-4o"],
   anthropic: ["claude-opus-4-1", "claude-sonnet-4", "claude-opus-4-0", "claude-haiku-4-5"],
-  xai: ["grok-4", "grok-3", "grok-3-mini"]
+  xai: ["grok-4", "grok-3", "grok-3-mini"],
+  openrouter: ["moonshotai/kimi-k2:free", "qwen/qwen3-coder:free", "qwen/qwen-2.5-72b-instruct:free", "moonshotai/kimi-k2"],
+  openclaw: ["openclaw:main", "openclaw:reasoning", "qwen3-coder"]
 };
 
 interface ChatUIMessage extends ChatMessage {
@@ -266,6 +268,8 @@ export function AIPanel({
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
               <option value="xai">xAI</option>
+              <option value="openrouter">OpenRouter (Kimi/Qwen)</option>
+              <option value="openclaw">OpenClaw</option>
             </select>
           </label>
 

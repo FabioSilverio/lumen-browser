@@ -19,7 +19,7 @@ export function WebViewport({
   onRestoreTab
 }: WebViewportProps) {
   useEffect(() => {
-    if (!tab || tab.suspended) {
+    if (!tab || tab.suspended || tab.kind === "ai") {
       return;
     }
 
@@ -63,7 +63,7 @@ export function WebViewport({
       webview.removeEventListener("did-navigate-in-page", handleInPageNavigate);
       webview.removeEventListener("page-favicon-updated", handleFavicon);
     };
-  }, [tab?.id, tab?.url, tab?.suspended, onTitleChange, onUrlChange, onFaviconChange, webviewRef]);
+  }, [tab?.id, tab?.url, tab?.suspended, tab?.kind, onTitleChange, onUrlChange, onFaviconChange, webviewRef]);
 
   if (!tab) {
     return (
@@ -81,6 +81,25 @@ export function WebViewport({
         <button className="primary-button" onClick={onRestoreTab}>
           Restore tab
         </button>
+      </section>
+    );
+  }
+
+  if (tab.kind === "ai") {
+    return (
+      <section className="viewport ai-tab-view">
+        <header className="ai-tab-head">
+          <div className="ai-tab-provider">{tab.aiProviderLabel ?? "AI"}</div>
+          <h1>{tab.aiQuery || "AI Query"}</h1>
+        </header>
+
+        <article className="ai-tab-content">
+          {tab.aiLoading && !(tab.aiResponse || "").trim() ? (
+            <p className="ai-tab-placeholder">Thinking...</p>
+          ) : (
+            <pre>{tab.aiResponse || tab.aiError || "No response yet."}</pre>
+          )}
+        </article>
       </section>
     );
   }

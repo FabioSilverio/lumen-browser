@@ -1,7 +1,7 @@
 import { ChatMessage } from "../types";
 
 const decoder = new TextDecoder();
-type ProviderName = "OpenAI" | "Anthropic" | "xAI";
+type ProviderName = "OpenAI" | "Anthropic" | "xAI" | "OpenRouter" | "OpenClaw";
 
 export class ProviderRequestError extends Error {
   readonly status: number;

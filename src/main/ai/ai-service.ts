@@ -2,6 +2,8 @@ import { AIProviderClient, AISettings, ChatRequest } from "./types";
 import { OpenAIProvider } from "./providers/openai-provider";
 import { AnthropicProvider } from "./providers/anthropic-provider";
 import { XAIProvider } from "./providers/xai-provider";
+import { OpenRouterProvider } from "./providers/openrouter-provider";
+import { OpenClawProvider } from "./providers/openclaw-provider";
 import { delay, ProviderRequestError, withSystemPrompt } from "./providers/common";
 
 interface CostTable {
@@ -28,14 +30,20 @@ const ESTIMATED_COSTS: Record<string, CostTable> = {
   "claude-haiku-4-5-20251001": { promptPerMTok: 1, completionPerMTok: 5 },
   "grok-4": { promptPerMTok: 6, completionPerMTok: 18 },
   "grok-3": { promptPerMTok: 5, completionPerMTok: 15 },
-  "grok-3-mini": { promptPerMTok: 0.3, completionPerMTok: 0.7 }
+  "grok-3-mini": { promptPerMTok: 0.3, completionPerMTok: 0.7 },
+  "moonshotai/kimi-k2:free": { promptPerMTok: 0, completionPerMTok: 0 },
+  "moonshotai/kimi-k2": { promptPerMTok: 1, completionPerMTok: 3 },
+  "qwen/qwen3-coder:free": { promptPerMTok: 0, completionPerMTok: 0 },
+  "qwen/qwen-2.5-72b-instruct:free": { promptPerMTok: 0, completionPerMTok: 0 }
 };
 
 export class AIService {
   private readonly clients: Record<AISettings["provider"], AIProviderClient> = {
     openai: new OpenAIProvider(),
     anthropic: new AnthropicProvider(),
-    xai: new XAIProvider()
+    xai: new XAIProvider(),
+    openrouter: new OpenRouterProvider(),
+    openclaw: new OpenClawProvider()
   };
 
   async streamChat(

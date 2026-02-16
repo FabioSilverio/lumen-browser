@@ -15,7 +15,6 @@ const COMMANDS = [
   "Suspend all tabs",
   "Open task manager",
   "Toggle AI panel",
-  "Clear inline AI response",
   "Suggest stale tabs",
   "Group tabs by topic"
 ];
