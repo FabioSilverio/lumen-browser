@@ -50,7 +50,7 @@ function createMainWindow(): BrowserWindow {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL!);
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
-    void mainWindow.loadFile(join(process.cwd(), "dist/renderer/index.html"));
+    void mainWindow.loadFile(join(app.getAppPath(), "dist/renderer/index.html"));
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
