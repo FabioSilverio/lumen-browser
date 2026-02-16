@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+ï»¿import { useEffect, useState } from "react";
+import { Command, Minus, PanelLeft, Square, SquareDashed, X } from "lucide-react";
 
 interface TitleBarProps {
   sidebarPinned: boolean;
@@ -22,17 +23,17 @@ export function TitleBar({ sidebarPinned, onToggleSidebarPin, onOpenCommandPalet
           onClick={onToggleSidebarPin}
           title="Toggle sidebar pin (Ctrl+B)"
         >
-          =
+          <PanelLeft size={16} />
         </button>
         <span className="wordmark">Lumen</span>
       </div>
 
       <div className="title-actions no-drag">
         <button className="icon-button" onClick={onOpenCommandPalette} title="Command palette (Ctrl+K)">
-          ?
+          <Command size={16} />
         </button>
         <button className="window-button" onClick={() => void window.lumen.window.minimize()} title="Minimize">
-          —
+          <Minus size={15} />
         </button>
         <button
           className="window-button"
@@ -43,10 +44,10 @@ export function TitleBar({ sidebarPinned, onToggleSidebarPin, onOpenCommandPalet
           }
           title={maximized ? "Restore" : "Maximize"}
         >
-          {maximized ? "?" : "?"}
+          {maximized ? <SquareDashed size={14} /> : <Square size={14} />}
         </button>
         <button className="window-button close" onClick={() => void window.lumen.window.close()} title="Close">
-          ?
+          <X size={15} />
         </button>
       </div>
     </header>

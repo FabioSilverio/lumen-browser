@@ -1,3 +1,14 @@
+﻿import {
+  Globe,
+  Moon,
+  Pin,
+  PinOff,
+  Plus,
+  Settings2,
+  Sparkles,
+  FolderPlus,
+  X
+} from "lucide-react";
 import { BrowserTab, TabSpace } from "../types";
 
 interface SidebarProps {
@@ -58,7 +69,15 @@ function TabItem({
       onClick={onSelect}
       title={tab.title}
     >
-      <span className="tab-favicon">{tab.suspended ? "zzz" : "o"}</span>
+      <span className="tab-favicon">
+        {tab.favicon ? (
+          <img src={tab.favicon} alt="favicon" loading="lazy" />
+        ) : tab.suspended ? (
+          <Moon size={14} />
+        ) : (
+          <Globe size={14} />
+        )}
+      </span>
       {expanded && (
         <>
           <span className="tab-title">{tab.title}</span>
@@ -71,7 +90,7 @@ function TabItem({
               }}
               title={tab.pinned ? "Unpin" : "Pin"}
             >
-              {tab.pinned ? "P" : "p"}
+              {tab.pinned ? <PinOff size={12} /> : <Pin size={12} />}
             </button>
             <button
               className="tab-mini"
@@ -81,7 +100,7 @@ function TabItem({
               }}
               title="Close tab"
             >
-              x
+              <X size={12} />
             </button>
           </div>
         </>
@@ -196,19 +215,19 @@ export function Sidebar({
 
       <div className="sidebar-footer">
         <button className="icon-button" onClick={() => onNewTab()} title="New tab (Ctrl+T)">
-          +
+          <Plus size={15} />
         </button>
         <button className="icon-button" onClick={onAddSpace} title="Add space">
-          S+
+          <FolderPlus size={15} />
         </button>
         <button className="icon-button" onClick={onOpenAI} title="AI panel (Ctrl+Shift+A)">
-          AI
+          <Sparkles size={15} />
         </button>
         <button className="icon-button" onClick={onToggleSidebarPin} title={pinned ? "Unpin sidebar" : "Pin sidebar"}>
-          {pinned ? "Unpin" : "Pin"}
+          {pinned ? <PinOff size={15} /> : <Pin size={15} />}
         </button>
         <button className="icon-button" onClick={onOpenSettings} title="Settings">
-          cfg
+          <Settings2 size={15} />
         </button>
       </div>
     </aside>

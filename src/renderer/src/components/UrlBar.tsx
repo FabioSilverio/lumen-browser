@@ -1,4 +1,5 @@
-import { FormEvent, useMemo } from "react";
+﻿import { FormEvent, useMemo } from "react";
+import { Lock, Sparkles } from "lucide-react";
 
 interface UrlBarProps {
   value: string;
@@ -13,7 +14,8 @@ interface UrlBarProps {
 function simplify(url: string): string {
   try {
     const parsed = new URL(url);
-    return parsed.hostname.replace(/^www\./, "") + parsed.pathname;
+    const path = parsed.pathname === "/" ? "" : parsed.pathname;
+    return parsed.hostname.replace(/^www\./, "") + path;
   } catch {
     return url;
   }
@@ -30,7 +32,9 @@ export function UrlBar({ value, activeUrl, focused, onFocusChange, onChange, onS
   return (
     <div className="url-shell">
       <form className={`url-bar ${focused ? "focused" : ""}`} onSubmit={handleSubmit}>
-        <span className="security-icon">lock</span>
+        <span className="security-icon" aria-hidden>
+          <Lock size={15} />
+        </span>
         <input
           id="lumen-url-input"
           value={display}
@@ -42,7 +46,7 @@ export function UrlBar({ value, activeUrl, focused, onFocusChange, onChange, onS
           autoComplete="off"
         />
         <button type="button" className="url-intelligence" onClick={onRunPageIntelligence} title="Page intelligence">
-          AI
+          <Sparkles size={14} />
         </button>
       </form>
     </div>
