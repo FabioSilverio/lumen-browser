@@ -1,85 +1,60 @@
-# Lumen Browser (Windows MVP)
+# Casa Flow Planner
 
-Lumen is a Windows-first, frameless Chromium browser shell built with Electron + React + TypeScript, with cloud AI provider support (OpenAI, Anthropic, xAI).
+Casa Flow Planner e uma SPA React mobile-first para organizar afazeres domesticos com tres visoes principais:
 
-## Implemented
+- **Resumo** com metricas, proximos afazeres e categorias com icones
+- **Agenda semanal** com dias da semana e horario em formato de cronograma
+- **Quadro estilo Trello** para mover tarefas entre `Para combinar`, `Planejado`, `Em andamento` e `Concluido`
 
-- Frameless browser shell with custom draggable title bar and window controls
-- Vertical sidebar with:
-  - hover-to-peek and pinned open behavior
-  - pinned tabs section
-  - Spaces (collapsible tab groups with color dots)
-  - drag/drop tab reorder and move across Spaces
-- Floating URL bar with:
-  - domain simplification when unfocused
-  - standard URL/search routing
-  - AI mode via `>` / `ask:` prefix with streaming inline response
-  - on-demand page intelligence trigger
-- Embedded Chromium browsing (`webview`) with new-tab interception for popup links
-- Command palette (`Ctrl+K`) with:
-  - command execution
-  - local tab search
-  - AI tab search mode via `tab:` prefix
-- Task manager modal (`Ctrl+Shift+T`) with app process metrics + system memory pressure
-- Tab suspension engine:
-  - inactivity-based suspension (5 min)
-  - aggressive suspension under high memory pressure (>70%)
-  - suspension state persisted in local session
-- AI provider subsystem:
-  - OpenAI / Anthropic / xAI model selector
-  - secure API key storage (`safeStorage`, DPAPI-backed on Windows)
-  - streaming chat in side panel
-  - request queue when AI is busy
-  - retries with exponential backoff on 429/5xx
-  - 30s request timeout + cancel path
-  - monthly budget cap + 80% warning
-  - usage dashboard (daily cost + per-feature breakdown)
-- AI context features:
-  - right-click selected text menu in pages: Ask AI, Summarize, Explain simply, Translate, Rewrite
-  - selected-text actions routed into AI panel or quick toasts
-- Page intelligence:
-  - local extraction of current page content
-  - reading time estimate
-  - key topic tags
-  - AI summary with local URL/content-hash cache
+A interface ja nasce pronta para uso em navegador e deploy web, com persistencia local em `localStorage`.
 
-## Project Structure
+## Recursos principais
 
-- `src/main`: Electron main process, IPC, AI service, secure settings storage
-- `src/renderer`: Browser UI, tab/space system, AI panel, command palette
-- `native/`: CMake + Conan native-core stub for future C++ performance modules
+- cadastro de tarefas domesticas com titulo, categoria, prioridade, responsavel, horario, local e anotacoes
+- icones visuais para cozinha, limpeza, roupa, pets, manutencao e outros contextos da casa
+- calendario semanal com grade horaria para visualizar compromissos e afazeres
+- board estilo Kanban/Trello para acompanhar andamento das tarefas
+- atalho de lembrete para WhatsApp com mensagem pronta para a esposa
+- suporte a tema claro/escuro
+- layout adaptado para mobile e desktop
+- manifesto web basico para experiencia de app instalada no celular
 
-## Install & Run
+## Lembretes no WhatsApp
+
+A versao atual abre um link/mensagem pronta no WhatsApp, o que funciona bem para web e celular sem backend.
+
+Se voce quiser **envio automatico real**, o proximo passo tecnico e integrar com:
+
+- WhatsApp Business Platform
+- Twilio WhatsApp API
+- ou um backend proprio com fila/agendamento
+
+## Rodando localmente
 
 ```bash
 npm install
 npm run dev
 ```
 
-Production build:
+## Build web
 
 ```bash
-npm run typecheck
-npm run build
-npm start
+npm run build:web
 ```
 
-## Keyboard Shortcuts
+Saida gerada em:
 
-- `Ctrl+T`: New tab
-- `Ctrl+W`: Close tab
-- `Ctrl+Tab` / `Ctrl+Shift+Tab`: Next/previous tab
-- `Ctrl+L`: Focus URL bar
-- `Ctrl+Shift+A`: Toggle AI panel
-- `Ctrl+B`: Toggle sidebar pin
-- `Ctrl+Shift+T`: Toggle task manager
-- `Ctrl+K`: Command palette
-- `Ctrl+Shift+S`: Toggle suspension engine
-- `Ctrl+Shift+G`: AI auto-group tabs by topic
-- `Ctrl+/`: Toggle light/dark theme
+```bash
+dist/renderer
+```
 
-## Notes
+## Deploy recomendado
 
-- AI features stay inactive until an API key is configured.
-- Lumen stores local session state in browser localStorage and AI/provider settings in Electron userData.
-- This is Windows-targeted and tested with the Electron desktop runtime.
+**Vercel** e a melhor opcao para este projeto hoje porque:
+
+- deploy de SPA Vite e direto
+- previews por branch/PR facilitam iteracao de UI
+- configuracao simples para evoluir depois com funcoes serverless ou backend de lembretes
+- menos atrito que GitHub Pages para ajustes futuros de dominio, previews e integracoes
+
+Ja deixei um `vercel.json` no repo apontando para o build web.

@@ -1,0 +1,10 @@
+{
+  "name": "Casa Flow Planner",
+  "short_name": "Casa Flow",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#6b63ff",
+  "lang": "pt-BR",
+  "description": "Planner domestico mobile-first com agenda semanal, quadro estilo Trello e lembretes prontos para WhatsApp."
+}

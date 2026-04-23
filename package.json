@@ -1,8 +1,8 @@
 {
-  "name": "lumen-browser",
+  "name": "casa-flow-planner",
   "version": "0.1.13",
   "private": false,
-  "description": "Lumen - minimalist AI-powered Chromium browser shell for Windows",
+  "description": "Casa Flow Planner - mobile-first household planner with weekly calendar, kanban board and WhatsApp reminders",
   "author": "FabioSilverio",
   "license": "MIT",
   "main": "dist/main/main.js",
@@ -12,11 +12,13 @@
     "dev:renderer": "vite",
     "dev:electron": "wait-on tcp:5173 file:dist/main/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 node scripts/run-electron.cjs",
     "build": "npm run build:main && npm run build:renderer",
+    "build:web": "vite build",
     "build:main": "tsup src/main/main.ts src/main/preload.ts --format cjs --out-dir dist/main --target node20 --sourcemap --clean --external electron",
     "build:renderer": "vite build",
     "dist:win": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis portable",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "start": "node scripts/run-electron.cjs"
+    "start": "node scripts/run-electron.cjs",
+    "preview:web": "vite preview"
   },
   "dependencies": {
     "@types/adm-zip": "^0.5.7",

@@ -1,2141 +1,1159 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
-import { AIPanel } from "./components/AIPanel";
-import { CommandPalette } from "./components/CommandPalette";
-import { ExtensionsModal } from "./components/ExtensionsModal";
-import { PasswordManagerModal } from "./components/PasswordManagerModal";
-import { PermissionAuditModal } from "./components/PermissionAuditModal";
-import { ProfileGate } from "./components/ProfileGate";
-import { Sidebar } from "./components/Sidebar";
-import { TaskManagerModal } from "./components/TaskManagerModal";
-import { TitleBar } from "./components/TitleBar";
-import { WebViewport } from "./components/WebViewport";
-import { AIChatFeature, AIProvider, BrowserProfile, BrowserTab, FavoritePage, TabFolder, TabSpace } from "./types";
+import { useEffect, useMemo, useState } from "react";
+import {
+  AlarmClock,
+  ArrowRight,
+  Baby,
+  Bath,
+  BedDouble,
+  BellRing,
+  CalendarDays,
+  Car,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Flower2,
+  Home,
+  KanbanSquare,
+  LayoutDashboard,
+  ListTodo,
+  MessageCircle,
+  Moon,
+  PawPrint,
+  PencilLine,
+  Plus,
+  ShoppingCart,
+  Shirt,
+  Sparkles,
+  Sun,
+  Trash2,
+  UtensilsCrossed,
+  Wrench
+} from "lucide-react";
 
-const SUSPEND_AFTER_MS = 5 * 60 * 1000;
-const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
-const LEGACY_STORAGE_KEY = "lumen.session.v2";
-const GLOBAL_STORAGE_KEY = "lumen.global.v1";
-const PROFILE_STORAGE_PREFIX = "lumen.profile.session.v1.";
-const SUMMARY_CACHE_KEY = "lumen.summary.cache.v1";
+const STORAGE_KEY = "casa-flow.planner.v1";
+const MINUTES_PER_HOUR = 60;
+const TIMELINE_START_HOUR = 6;
+const TIMELINE_END_HOUR = 22;
+const HOURS = Array.from({ length: TIMELINE_END_HOUR - TIMELINE_START_HOUR + 1 }, (_, index) => TIMELINE_START_HOUR + index);
 
-const SPACE_COLORS = ["#0a84ff", "#30d158", "#ff9f0a", "#ff375f", "#64d2ff", "#bf5af2"];
+type ViewMode = "resumo" | "agenda" | "quadro";
+type ChoreStatus = "capturar" | "planejado" | "fazendo" | "feito";
+type Priority = "leve" | "media" | "alta";
+type CategoryId =
+  | "limpeza"
+  | "cozinha"
+  | "roupa"
+  | "banho"
+  | "quarto"
+  | "compras"
+  | "jardim"
+  | "pets"
+  | "carro"
+  | "manutencao"
+  | "familia";
 
-interface ProfileSession {
-  tabs: BrowserTab[];
-  spaces: TabSpace[];
-  folders: TabFolder[];
-  favorites: FavoritePage[];
-  activeTabId: string;
-  urlHistory: string[];
-}
-
-interface GlobalSettings {
-  sidebarPinned: boolean;
-  suspensionEnabled: boolean;
-  sidebarWidth: number;
-  theme: "light" | "dark";
-  profiles: BrowserProfile[];
-  activeProfileId: string;
-}
-
-interface AppBootstrap {
-  global: GlobalSettings;
-  session: ProfileSession;
-  activeProfileId: string;
-}
-
-interface PageIntel {
-  summary: string;
-  readingTimeMin: number;
-  topics: string[];
-}
-
-interface Toast {
+interface ChoreItem {
   id: string;
-  text: string;
-}
-
-interface PendingAI {
-  text: string;
-  resolve: (text: string) => void;
-  reject: (error: Error) => void;
-}
-
-interface TopSite {
-  url: string;
   title: string;
-  visits: number;
+  category: CategoryId;
+  status: ChoreStatus;
+  priority: Priority;
+  assignee: string;
+  day: number;
+  startTime: string;
+  endTime: string;
+  room: string;
+  notes: string;
+  whatsappReminder: boolean;
+  reminderLeadMinutes: number;
+  createdAt: number;
 }
 
-function simpleHash(input: string): string {
-  let hash = 0;
-  for (let i = 0; i < input.length; i += 1) {
-    hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash).toString(16);
+interface PlannerState {
+  householdName: string;
+  spouseName: string;
+  spousePhone: string;
+  theme: "light" | "dark";
+  chores: ChoreItem[];
 }
 
-function createSpace(name: string, color = SPACE_COLORS[0] ?? "#0a84ff"): TabSpace {
+interface ChoreFormState {
+  title: string;
+  category: CategoryId;
+  status: ChoreStatus;
+  priority: Priority;
+  assignee: string;
+  day: number;
+  startTime: string;
+  endTime: string;
+  room: string;
+  notes: string;
+  whatsappReminder: boolean;
+  reminderLeadMinutes: number;
+}
+
+const dayNames = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"];
+const fullDayNames = ["Segunda", "Terca", "Quarta", "Quinta", "Sexta", "Sabado", "Domingo"];
+const statusOrder: ChoreStatus[] = ["capturar", "planejado", "fazendo", "feito"];
+const statusLabels: Record<ChoreStatus, string> = {
+  capturar: "Para combinar",
+  planejado: "Planejado",
+  fazendo: "Em andamento",
+  feito: "Concluido"
+};
+const priorityLabels: Record<Priority, string> = {
+  leve: "Leve",
+  media: "Media",
+  alta: "Alta"
+};
+
+const categoryCatalog: Record<CategoryId, { label: string; accent: string; icon: typeof Home }> = {
+  limpeza: { label: "Limpeza", accent: "#7c5cff", icon: Sparkles },
+  cozinha: { label: "Cozinha", accent: "#ff8f3f", icon: UtensilsCrossed },
+  roupa: { label: "Roupa", accent: "#4c8dff", icon: Shirt },
+  banho: { label: "Banho", accent: "#36c6c0", icon: Bath },
+  quarto: { label: "Quarto", accent: "#ff6ba2", icon: BedDouble },
+  compras: { label: "Compras", accent: "#00b894", icon: ShoppingCart },
+  jardim: { label: "Jardim", accent: "#34c759", icon: Flower2 },
+  pets: { label: "Pets", accent: "#8c6cff", icon: PawPrint },
+  carro: { label: "Carro", accent: "#56657a", icon: Car },
+  manutencao: { label: "Manutencao", accent: "#f4b400", icon: Wrench },
+  familia: { label: "Familia", accent: "#ff5f57", icon: Baby }
+};
+
+const viewConfig: Array<{ id: ViewMode; label: string; icon: typeof LayoutDashboard }> = [
+  { id: "resumo", label: "Resumo", icon: LayoutDashboard },
+  { id: "agenda", label: "Agenda", icon: CalendarDays },
+  { id: "quadro", label: "Quadro", icon: KanbanSquare }
+];
+
+function uid(): string {
+  return crypto.randomUUID();
+}
+
+function getTodayWeekIndex(): number {
+  const nativeDay = new Date().getDay();
+  return nativeDay === 0 ? 6 : nativeDay - 1;
+}
+
+function createDefaultForm(): ChoreFormState {
+  const todayIndex = getTodayWeekIndex();
+
   return {
-    id: crypto.randomUUID(),
-    name,
-    color,
-    collapsed: false
+    title: "",
+    category: "limpeza",
+    status: "capturar",
+    priority: "media",
+    assignee: "Eu",
+    day: todayIndex,
+    startTime: "18:00",
+    endTime: "18:45",
+    room: "Casa",
+    notes: "",
+    whatsappReminder: true,
+    reminderLeadMinutes: 45
   };
 }
 
-function createTab(spaceId: string, url: string, title = "Loading..."): BrowserTab {
-  return {
-    id: crypto.randomUUID(),
-    title,
-    url,
-    kind: "web",
-    pinned: false,
-    suspended: false,
-    lastActiveAt: Date.now(),
-    createdAt: Date.now(),
-    spaceId
-  };
-}
-
-function createNewTab(spaceId: string): BrowserTab {
-  return {
-    id: crypto.randomUUID(),
-    title: "New Tab",
-    url: "lumen://new-tab",
-    kind: "newtab",
-    pinned: false,
-    suspended: false,
-    lastActiveAt: Date.now(),
-    createdAt: Date.now(),
-    spaceId
-  };
-}
-
-function createFolder(spaceId: string, name = "Folder"): TabFolder {
-  return {
-    id: crypto.randomUUID(),
-    name,
-    spaceId,
-    collapsed: false
-  };
-}
-
-function createWelcomeTab(spaceId: string): BrowserTab {
-  return {
-    id: crypto.randomUUID(),
-    title: "Welcome to Lumen",
-    url: "lumen://welcome",
-    kind: "welcome",
-    pinned: false,
-    suspended: false,
-    lastActiveAt: Date.now(),
-    createdAt: Date.now(),
-    spaceId
-  };
-}
-
-function createAITab(spaceId: string, query: string, label: string): BrowserTab {
-  const cleanQuery = query.trim();
-  const clipped = cleanQuery.length > 42 ? `${cleanQuery.slice(0, 42)}...` : cleanQuery;
+function defaultPlannerState(): PlannerState {
+  const baseCreatedAt = Date.now();
 
   return {
-    id: crypto.randomUUID(),
-    title: `AI: ${clipped || "New query"}`,
-    url: "lumen://ai",
-    kind: "ai",
-    pinned: false,
-    suspended: false,
-    lastActiveAt: Date.now(),
-    createdAt: Date.now(),
-    spaceId,
-    aiQuery: cleanQuery,
-    aiProviderLabel: label,
-    aiResponse: "",
-    aiLoading: true,
-    aiMessages: [
-      { role: "user", content: cleanQuery },
-      { role: "assistant", content: "" }
+    householdName: "Casa Flow",
+    spouseName: "Amor",
+    spousePhone: "",
+    theme: "light",
+    chores: [
+      {
+        id: uid(),
+        title: "Separar roupas claras e escuras",
+        category: "roupa",
+        status: "planejado",
+        priority: "media",
+        assignee: "Eu",
+        day: 0,
+        startTime: "19:00",
+        endTime: "19:40",
+        room: "Lavanderia",
+        notes: "Deixar sabao e amaciante prontos.",
+        whatsappReminder: true,
+        reminderLeadMinutes: 60,
+        createdAt: baseCreatedAt
+      },
+      {
+        id: uid(),
+        title: "Comprar frutas e itens do cafe",
+        category: "compras",
+        status: "capturar",
+        priority: "alta",
+        assignee: "Eu",
+        day: 1,
+        startTime: "08:00",
+        endTime: "08:45",
+        room: "Mercado",
+        notes: "Banana, morango, iogurte, pao e ovos.",
+        whatsappReminder: true,
+        reminderLeadMinutes: 30,
+        createdAt: baseCreatedAt + 1
+      },
+      {
+        id: uid(),
+        title: "Faxina rapida na cozinha",
+        category: "cozinha",
+        status: "fazendo",
+        priority: "media",
+        assignee: "Eu + Esposa",
+        day: 2,
+        startTime: "20:00",
+        endTime: "21:00",
+        room: "Cozinha",
+        notes: "Limpar bancada, fogao e recolher reciclaveis.",
+        whatsappReminder: false,
+        reminderLeadMinutes: 15,
+        createdAt: baseCreatedAt + 2
+      },
+      {
+        id: uid(),
+        title: "Regar plantas da varanda",
+        category: "jardim",
+        status: "feito",
+        priority: "leve",
+        assignee: "Eu",
+        day: 4,
+        startTime: "07:00",
+        endTime: "07:20",
+        room: "Varanda",
+        notes: "Conferir a suculenta perto da janela.",
+        whatsappReminder: false,
+        reminderLeadMinutes: 20,
+        createdAt: baseCreatedAt + 3
+      }
     ]
   };
 }
 
-function createProfile(name: string): BrowserProfile {
+function normalizeChore(raw: Partial<ChoreItem>): ChoreItem {
+  const fallback = defaultPlannerState().chores[0]!;
+  const category = raw.category && raw.category in categoryCatalog ? raw.category : fallback.category;
+  const status = raw.status && raw.status in statusLabels ? raw.status : fallback.status;
+  const priority = raw.priority && raw.priority in priorityLabels ? raw.priority : fallback.priority;
+  const day = typeof raw.day === "number" && raw.day >= 0 && raw.day <= 6 ? raw.day : fallback.day;
+  const startTime = typeof raw.startTime === "string" && /^\d{2}:\d{2}$/.test(raw.startTime) ? raw.startTime : fallback.startTime;
+  const endTime = typeof raw.endTime === "string" && /^\d{2}:\d{2}$/.test(raw.endTime) ? raw.endTime : fallback.endTime;
+
   return {
-    id: crypto.randomUUID(),
-    name,
-    createdAt: Date.now()
+    id: typeof raw.id === "string" && raw.id ? raw.id : uid(),
+    title: typeof raw.title === "string" && raw.title.trim() ? raw.title : fallback.title,
+    category,
+    status,
+    priority,
+    assignee: typeof raw.assignee === "string" && raw.assignee.trim() ? raw.assignee : fallback.assignee,
+    day,
+    startTime,
+    endTime,
+    room: typeof raw.room === "string" && raw.room.trim() ? raw.room : fallback.room,
+    notes: typeof raw.notes === "string" ? raw.notes : "",
+    whatsappReminder: Boolean(raw.whatsappReminder),
+    reminderLeadMinutes: typeof raw.reminderLeadMinutes === "number" ? raw.reminderLeadMinutes : fallback.reminderLeadMinutes,
+    createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now()
   };
 }
 
-function defaultSession(): ProfileSession {
-  const baseSpace = createSpace("General", SPACE_COLORS[0] ?? "#0a84ff");
-  const welcomeTab = createWelcomeTab(baseSpace.id);
-
-  return {
-    tabs: [welcomeTab],
-    spaces: [baseSpace],
-    folders: [],
-    favorites: [],
-    activeTabId: welcomeTab.id,
-    urlHistory: []
-  };
-}
-
-function normalizeAddress(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) {
-    return "https://duckduckgo.com";
+function parseStoredState(): PlannerState {
+  if (typeof window === "undefined") {
+    return defaultPlannerState();
   }
-
-  if (/^[a-zA-Z]+:\/\//.test(trimmed)) {
-    return trimmed;
-  }
-
-  if (trimmed.includes(" ")) {
-    return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
-  }
-
-  if (trimmed.includes(".")) {
-    return `https://${trimmed}`;
-  }
-
-  return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
-}
-
-function canonicalUrl(raw: string): string {
-  try {
-    const parsed = new URL(raw);
-    parsed.hash = "";
-    return parsed.toString().replace(/\/$/, "");
-  } catch {
-    return raw.trim().replace(/\/$/, "");
-  }
-}
-
-function deriveTopSites(history: string[], tabs: BrowserTab[]): TopSite[] {
-  const counts = new Map<string, { url: string; visits: number }>();
-  history.forEach((entry) => {
-    try {
-      const parsed = new URL(entry);
-      if (!/^https?:$/i.test(parsed.protocol)) {
-        return;
-      }
-      const key = parsed.hostname.replace(/^www\./, "");
-      const current = counts.get(key);
-      if (current) {
-        current.visits += 1;
-      } else {
-        counts.set(key, {
-          url: `${parsed.protocol}//${parsed.hostname}`,
-          visits: 1
-        });
-      }
-    } catch {
-      // Ignore invalid URLs.
-    }
-  });
-
-  const titles = new Map<string, string>();
-  tabs.forEach((tab) => {
-    if (tab.kind !== "web") {
-      return;
-    }
-    try {
-      const key = new URL(tab.url).hostname.replace(/^www\./, "");
-      if (!titles.has(key) && tab.title && tab.title !== "Loading...") {
-        titles.set(key, tab.title);
-      }
-    } catch {
-      // Ignore invalid URL titles.
-    }
-  });
-
-  return [...counts.entries()]
-    .sort((a, b) => b[1].visits - a[1].visits)
-    .slice(0, 10)
-    .map(([key, value]) => ({
-      url: value.url,
-      title: titles.get(key) ?? key,
-      visits: value.visits
-    }));
-}
-
-function parseAddressAI(
-  rawInput: string
-): { query: string; providerOverride?: AIProvider; modelOverride?: string; label: string } | null {
-  const raw = rawInput.trim();
-  if (!raw) {
-    return null;
-  }
-
-  if (raw.startsWith(">")) {
-    const query = raw.replace(/^>\s*/, "").trim();
-    return query ? { query, label: "AI" } : null;
-  }
-
-  if (/^ask:/i.test(raw)) {
-    const query = raw.replace(/^ask:\s*/i, "").trim();
-    return query ? { query, label: "AI" } : null;
-  }
-
-  if (!raw.startsWith("@")) {
-    return null;
-  }
-
-  const [prefix = "@", ...rest] = raw.split(/\s+/);
-  const lowerPrefix = prefix.toLowerCase();
-  const remaining = rest.join(" ").trim();
-
-  if (lowerPrefix === "@" && rest.length) {
-    const [inlineCommand = "", ...inlineRest] = rest;
-    const inlineLower = inlineCommand.toLowerCase();
-    const inlineQuery = inlineRest.join(" ").trim();
-
-    if (inlineLower === "chat") {
-      return inlineQuery ? { query: inlineQuery, label: "AI" } : null;
-    }
-
-    if (inlineLower === "gpt" || inlineLower === "openai") {
-      return inlineQuery ? { query: inlineQuery, providerOverride: "openai", label: "AI (openai)" } : null;
-    }
-
-    if (inlineLower === "claude" || inlineLower === "anthropic") {
-      return inlineQuery ? { query: inlineQuery, providerOverride: "anthropic", label: "AI (claude)" } : null;
-    }
-
-    if (inlineLower === "grok" || inlineLower === "xai") {
-      return inlineQuery ? { query: inlineQuery, providerOverride: "xai", label: "AI (grok)" } : null;
-    }
-
-    if (inlineLower === "qwen") {
-      return inlineQuery
-        ? { query: inlineQuery, providerOverride: "openrouter", modelOverride: "qwen/qwen3-coder:free", label: "AI (qwen)" }
-        : null;
-    }
-
-    if (inlineLower === "kimi") {
-      return inlineQuery
-        ? { query: inlineQuery, providerOverride: "openrouter", modelOverride: "moonshotai/kimi-k2:free", label: "AI (kimi)" }
-        : null;
-    }
-
-    if (inlineLower === "openclaw" || inlineLower === "claw") {
-      return inlineQuery ? { query: inlineQuery, providerOverride: "openclaw", label: "AI (openclaw)" } : null;
-    }
-  }
-
-  if (lowerPrefix === "@" || lowerPrefix === "@chat") {
-    return remaining ? { query: remaining, label: "AI" } : null;
-  }
-
-  if (lowerPrefix === "@gpt" || lowerPrefix === "@openai") {
-    return remaining ? { query: remaining, providerOverride: "openai", label: "AI (openai)" } : null;
-  }
-
-  if (lowerPrefix === "@claude" || lowerPrefix === "@anthropic") {
-    return remaining ? { query: remaining, providerOverride: "anthropic", label: "AI (claude)" } : null;
-  }
-
-  if (lowerPrefix === "@grok" || lowerPrefix === "@xai") {
-    return remaining ? { query: remaining, providerOverride: "xai", label: "AI (grok)" } : null;
-  }
-
-  if (lowerPrefix === "@qwen") {
-    return remaining
-      ? { query: remaining, providerOverride: "openrouter", modelOverride: "qwen/qwen3-coder:free", label: "AI (qwen)" }
-      : null;
-  }
-
-  if (lowerPrefix === "@kimi") {
-    return remaining
-      ? { query: remaining, providerOverride: "openrouter", modelOverride: "moonshotai/kimi-k2:free", label: "AI (kimi)" }
-      : null;
-  }
-
-  if (lowerPrefix === "@openclaw" || lowerPrefix === "@claw") {
-    return remaining ? { query: remaining, providerOverride: "openclaw", label: "AI (openclaw)" } : null;
-  }
-
-  const fallback = raw.slice(1).trim();
-  return fallback ? { query: fallback, label: "AI" } : null;
-}
-
-function rotateTabs(tabs: BrowserTab[], activeTabId: string, direction: 1 | -1): string {
-  const index = tabs.findIndex((tab) => tab.id === activeTabId);
-  if (index === -1 || tabs.length === 0) {
-    return activeTabId;
-  }
-
-  const next = (index + direction + tabs.length) % tabs.length;
-  return tabs[next]?.id ?? activeTabId;
-}
-
-function deriveTopics(text: string): string[] {
-  const stopWords = new Set([
-    "the", "and", "that", "with", "from", "this", "have", "about", "your", "will", "were", "they",
-    "their", "into", "there", "http", "https", "www", "com", "for", "not", "you", "are", "was",
-    "what", "when", "where", "which", "how", "why", "can", "has", "had", "its", "our", "out"
-  ]);
-
-  const counts = new Map<string, number>();
-  text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((token) => token.length > 3 && !stopWords.has(token))
-    .forEach((token) => {
-      counts.set(token, (counts.get(token) ?? 0) + 1);
-    });
-
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([token]) => token);
-}
-
-function normalizeSession(input: Partial<ProfileSession> | null | undefined): ProfileSession {
-  const fallback = defaultSession();
-  if (!input) {
-    return fallback;
-  }
-
-  const spaces = input.spaces?.length ? input.spaces : fallback.spaces;
-  const folders = input.folders?.filter((folder) => spaces.some((space) => space.id === folder.spaceId)) ?? [];
-  const defaultSpaceId = spaces[0]?.id ?? fallback.spaces[0]!.id;
-  const tabs = input.tabs?.length
-    ? input.tabs.map((tab) => {
-      const normalizedKind: BrowserTab["kind"] =
-        tab.kind === "ai" || tab.kind === "welcome" || tab.kind === "newtab" || tab.kind === "web"
-          ? tab.kind
-          : "web";
-
-      return {
-        ...tab,
-        kind: normalizedKind,
-        spaceId: tab.spaceId || defaultSpaceId,
-        folderId: tab.folderId && folders.some((folder) => folder.id === tab.folderId) ? tab.folderId : undefined
-      };
-    })
-    : fallback.tabs;
-  const favorites = input.favorites?.filter((favorite) => typeof favorite.url === "string" && favorite.url.trim()) ?? [];
-  const activeTabId = tabs.some((tab) => tab.id === input.activeTabId)
-    ? input.activeTabId ?? tabs[0]!.id
-    : tabs[0]!.id;
-
-  return {
-    tabs,
-    spaces,
-    folders,
-    favorites,
-    activeTabId,
-    urlHistory: input.urlHistory ?? []
-  };
-}
-
-function parseChromeWebStoreUrl(url: string | undefined): string | null {
-  if (!url) {
-    return null;
-  }
-  const match = url.match(/https?:\/\/chromewebstore\.google\.com\/detail\/[^/]+\/([a-p]{32})/i) ?? url.match(/https?:\/\/chromewebstore\.google\.com\/detail\/([a-p]{32})/i) ?? url.match(/([a-p]{32})/i);
-  if (!match?.[1]) {
-    return null;
-  }
-  return `https://chromewebstore.google.com/detail/${match[1].toLowerCase()}`;
-}
-
-function buildInitialTabVisitHistory(tabs: BrowserTab[]): Record<string, string[]> {
-  const map: Record<string, string[]> = {};
-  tabs.forEach((tab) => {
-    if (tab.kind === "web" && tab.url) {
-      map[tab.id] = [tab.url];
-    }
-  });
-  return map;
-}
-
-function defaultGlobal(profile: BrowserProfile): GlobalSettings {
-  return {
-    sidebarPinned: true,
-    suspensionEnabled: true,
-    sidebarWidth: 240,
-    theme: "light",
-    profiles: [profile],
-    activeProfileId: profile.id
-  };
-}
-
-function profileSessionKey(profileId: string): string {
-  return `${PROFILE_STORAGE_PREFIX}${profileId}`;
-}
-
-function readProfileSession(profileId: string): ProfileSession {
-  try {
-    const raw = window.localStorage.getItem(profileSessionKey(profileId));
-    return normalizeSession(raw ? (JSON.parse(raw) as Partial<ProfileSession>) : null);
-  } catch {
-    return defaultSession();
-  }
-}
-
-function loadBootstrap(): AppBootstrap {
-  const defaultProf = createProfile("Personal");
 
   try {
-    const globalRaw = window.localStorage.getItem(GLOBAL_STORAGE_KEY);
-    const legacyRaw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
-
-    if (!globalRaw && legacyRaw) {
-      const legacy = JSON.parse(legacyRaw) as Partial<{
-        tabs: BrowserTab[];
-        spaces: TabSpace[];
-        folders: TabFolder[];
-        activeTabId: string;
-        theme: "light" | "dark";
-        sidebarPinned: boolean;
-        suspensionEnabled: boolean;
-        sidebarWidth: number;
-      }>;
-
-      const global: GlobalSettings = {
-        ...defaultGlobal(defaultProf),
-        theme: legacy.theme === "dark" ? "dark" : "light",
-        sidebarPinned: legacy.sidebarPinned ?? true,
-        suspensionEnabled: legacy.suspensionEnabled ?? true,
-        sidebarWidth: typeof legacy.sidebarWidth === "number" ? Math.min(420, Math.max(180, legacy.sidebarWidth)) : 240
-      };
-      const session = normalizeSession({
-        tabs: legacy.tabs,
-        spaces: legacy.spaces,
-        folders: legacy.folders,
-        activeTabId: legacy.activeTabId
-      });
-
-      window.localStorage.setItem(GLOBAL_STORAGE_KEY, JSON.stringify(global));
-      window.localStorage.setItem(profileSessionKey(global.activeProfileId), JSON.stringify(session));
-      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
-
-      return {
-        global,
-        session,
-        activeProfileId: global.activeProfileId
-      };
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return defaultPlannerState();
     }
 
-    if (!globalRaw) {
-      const global = defaultGlobal(defaultProf);
-      const session = defaultSession();
-      window.localStorage.setItem(GLOBAL_STORAGE_KEY, JSON.stringify(global));
-      window.localStorage.setItem(profileSessionKey(global.activeProfileId), JSON.stringify(session));
+    const parsed = JSON.parse(raw) as Partial<PlannerState>;
+    const fallback = defaultPlannerState();
 
-      return {
-        global,
-        session,
-        activeProfileId: global.activeProfileId
-      };
-    }
-
-    const parsed = JSON.parse(globalRaw) as Partial<GlobalSettings>;
-    const profiles = parsed.profiles?.length ? parsed.profiles : [defaultProf];
-    const activeProfileId = profiles.some((profile) => profile.id === parsed.activeProfileId)
-      ? parsed.activeProfileId ?? profiles[0]!.id
-      : profiles[0]!.id;
-
-    const global: GlobalSettings = {
-      sidebarPinned: parsed.sidebarPinned ?? true,
-      suspensionEnabled: parsed.suspensionEnabled ?? true,
-      sidebarWidth: typeof parsed.sidebarWidth === "number" ? Math.min(420, Math.max(180, parsed.sidebarWidth)) : 240,
+    return {
+      householdName: typeof parsed.householdName === "string" && parsed.householdName.trim() ? parsed.householdName : fallback.householdName,
+      spouseName: typeof parsed.spouseName === "string" && parsed.spouseName.trim() ? parsed.spouseName : fallback.spouseName,
+      spousePhone: typeof parsed.spousePhone === "string" ? parsed.spousePhone : "",
       theme: parsed.theme === "dark" ? "dark" : "light",
-      profiles,
-      activeProfileId
-    };
-    const session = readProfileSession(activeProfileId);
-
-    return {
-      global,
-      session,
-      activeProfileId
+      chores: Array.isArray(parsed.chores) && parsed.chores.length ? parsed.chores.map(normalizeChore) : fallback.chores
     };
   } catch {
-    const global = defaultGlobal(defaultProf);
-    const session = defaultSession();
-    return {
-      global,
-      session,
-      activeProfileId: global.activeProfileId
-    };
+    return defaultPlannerState();
   }
+}
+
+function timeToMinutes(value: string): number {
+  const [hourText = "0", minuteText = "0"] = value.split(":");
+  return Number(hourText) * MINUTES_PER_HOUR + Number(minuteText);
+}
+
+function ensureEndAfterStart(startTime: string, endTime: string): string {
+  const startMinutes = timeToMinutes(startTime);
+  const endMinutes = timeToMinutes(endTime);
+
+  if (endMinutes > startMinutes) {
+    return endTime;
+  }
+
+  const adjusted = startMinutes + 30;
+  const nextHour = Math.floor(adjusted / MINUTES_PER_HOUR).toString().padStart(2, "0");
+  const nextMinute = String(adjusted % MINUTES_PER_HOUR).padStart(2, "0");
+  return `${nextHour}:${nextMinute}`;
+}
+
+function startOfWeek(reference: Date): Date {
+  const result = new Date(reference);
+  const todayIndex = getTodayWeekIndex();
+  result.setHours(0, 0, 0, 0);
+  result.setDate(result.getDate() - todayIndex);
+  return result;
+}
+
+function addDays(base: Date, amount: number): Date {
+  const next = new Date(base);
+  next.setDate(base.getDate() + amount);
+  return next;
+}
+
+function formatWeekRange(baseDate: Date): string {
+  const start = baseDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  const end = addDays(baseDate, 6).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  return `${start} - ${end}`;
+}
+
+function formatDateLabel(baseDate: Date, dayIndex: number): string {
+  return addDays(baseDate, dayIndex).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function priorityTone(priority: Priority): string {
+  if (priority === "alta") {
+    return "var(--priority-high)";
+  }
+  if (priority === "media") {
+    return "var(--priority-medium)";
+  }
+  return "var(--priority-low)";
+}
+
+function buildWhatsAppUrl(chore: ChoreItem, spouseName: string, spousePhone: string, weekStartDate: Date): string {
+  const eventDate = formatDateLabel(weekStartDate, chore.day);
+  const dayLabel = fullDayNames[chore.day] ?? fullDayNames[0];
+  const reminderText = [
+    `Oi ${spouseName || "amor"}, consegue cadastrar esse afazer para eu fazer?`,
+    "",
+    `Tarefa: ${chore.title}`,
+    `Quando: ${dayLabel}, ${eventDate}, ${chore.startTime} as ${chore.endTime}`,
+    `Local: ${chore.room}`,
+    `Prioridade: ${priorityLabels[chore.priority]}`,
+    chore.notes ? `Anotacoes: ${chore.notes}` : "Anotacoes: sem observacoes extras por enquanto.",
+    "",
+    "Me avisa no WhatsApp quando estiver certinho."
+  ].join("\n");
+
+  const digits = spousePhone.replace(/\D/g, "");
+  const base = digits ? `https://wa.me/${digits}` : "https://wa.me/";
+  return `${base}?text=${encodeURIComponent(reminderText)}`;
+}
+
+function buildShareMessage(chore: ChoreItem, spouseName: string, weekStartDate: Date): string {
+  return [
+    `Lembrete para ${spouseName || "esposa"}`,
+    `${chore.title}`,
+    `${fullDayNames[chore.day]} ${formatDateLabel(weekStartDate, chore.day)} - ${chore.startTime} as ${chore.endTime}`,
+    `Local: ${chore.room}`,
+    chore.notes ? `Anotacoes: ${chore.notes}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+function sortChores(choreList: ChoreItem[]): ChoreItem[] {
+  return [...choreList].sort((left, right) => {
+    const dayDelta = left.day - right.day;
+    if (dayDelta !== 0) {
+      return dayDelta;
+    }
+
+    const timeDelta = timeToMinutes(left.startTime) - timeToMinutes(right.startTime);
+    if (timeDelta !== 0) {
+      return timeDelta;
+    }
+
+    return left.createdAt - right.createdAt;
+  });
+}
+
+function toFormState(chore: ChoreItem): ChoreFormState {
+  return {
+    title: chore.title,
+    category: chore.category,
+    status: chore.status,
+    priority: chore.priority,
+    assignee: chore.assignee,
+    day: chore.day,
+    startTime: chore.startTime,
+    endTime: chore.endTime,
+    room: chore.room,
+    notes: chore.notes,
+    whatsappReminder: chore.whatsappReminder,
+    reminderLeadMinutes: chore.reminderLeadMinutes
+  };
 }
 
 export function App() {
-  const bootstrap = loadBootstrap();
-  const [tabs, setTabs] = useState<BrowserTab[]>(bootstrap.session.tabs);
-  const [spaces, setSpaces] = useState<TabSpace[]>(bootstrap.session.spaces);
-  const [folders, setFolders] = useState<TabFolder[]>(bootstrap.session.folders);
-  const [favorites, setFavorites] = useState<FavoritePage[]>(bootstrap.session.favorites);
-  const [activeTabId, setActiveTabId] = useState<string>(bootstrap.session.activeTabId);
-  const [urlHistory, setUrlHistory] = useState<string[]>(bootstrap.session.urlHistory);
-  const [urlValue, setUrlValue] = useState("");
-  const [urlFocused, setUrlFocused] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">(bootstrap.global.theme);
-  const [sidebarPinned, setSidebarPinned] = useState(bootstrap.global.sidebarPinned);
-  const [sidebarPeek, setSidebarPeek] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiPanelIntent, setAiPanelIntent] = useState<"chat" | "settings">("chat");
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [taskManagerOpen, setTaskManagerOpen] = useState(false);
-  const [extensionsModalOpen, setExtensionsModalOpen] = useState(false);
-  const [passwordsModalOpen, setPasswordsModalOpen] = useState(false);
-  const [permissionAuditOpen, setPermissionAuditOpen] = useState(false);
-  const [suspensionEnabled, setSuspensionEnabled] = useState(bootstrap.global.suspensionEnabled);
-  const [sidebarWidth, setSidebarWidth] = useState(bootstrap.global.sidebarWidth);
-  const [profiles, setProfiles] = useState<BrowserProfile[]>(bootstrap.global.profiles);
-  const [activeProfileId, setActiveProfileId] = useState<string>(bootstrap.activeProfileId);
-  const [providerSuggestions, setProviderSuggestions] = useState<string[]>([]);
-  const [queuedPrompt, setQueuedPrompt] = useState<{
-    id: string;
-    text: string;
-    feature?: AIChatFeature;
-  } | null>(null);
-  const [pageIntel, setPageIntel] = useState<Record<string, PageIntel>>({});
-  const [dismissedPageIntel, setDismissedPageIntel] = useState<Record<string, true>>({});
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const [memoryPressureRatio, setMemoryPressureRatio] = useState(0);
-  const [profileGateOpen, setProfileGateOpen] = useState(true);
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [canGoForward, setCanGoForward] = useState(false);
-  const [pageIntelLoading, setPageIntelLoading] = useState(false);
-  const [tabVisitHistory, setTabVisitHistory] = useState<Record<string, string[]>>(
-    buildInitialTabVisitHistory(bootstrap.session.tabs)
-  );
+  const [planner, setPlanner] = useState<PlannerState>(() => parseStoredState());
+  const [activeView, setActiveView] = useState<ViewMode>("resumo");
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [composerOpen, setComposerOpen] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [formState, setFormState] = useState<ChoreFormState>(() => createDefaultForm());
 
-  const hoverTimerRef = useRef<number | null>(null);
-  const webviewRef = useRef<Electron.WebviewTag | null>(null);
-  const aiTabRequestMap = useRef<Map<string, { tabId: string; messageIndex: number }>>(new Map());
-  const pendingAIMap = useRef<Map<string, PendingAI>>(new Map());
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", planner.theme);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(planner));
+  }, [planner]);
 
-  const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId), [tabs, activeTabId]);
+  const weekStartDate = useMemo(() => {
+    const base = startOfWeek(new Date());
+    return addDays(base, weekOffset * 7);
+  }, [weekOffset]);
 
-  const localAddressSuggestions = useMemo(() => {
-    const query = urlValue.trim().toLowerCase();
-    if (!query || query.startsWith("@") || query.startsWith(">") || query.startsWith("ask:")) {
-      return [];
-    }
-
-    const fromHistory = urlHistory
-      .filter((entry) => entry.toLowerCase().includes(query))
-      .slice(0, 16);
-    const fromTabs = tabs
-      .map((tab) => tab.url)
-      .filter((url) => url.toLowerCase().includes(query))
-      .slice(0, 5);
-
-    const combined = [...new Set([...fromHistory, ...fromTabs])].slice(0, 8);
-    if (query.includes(".") && !combined.some((entry) => canonicalUrl(entry).includes(query))) {
-      combined.unshift(`https://${query}`);
-    }
-    return combined.slice(0, 8);
-  }, [urlValue, urlHistory, tabs]);
-
-  const addressSuggestions = useMemo(() => {
-    return [...new Set([...localAddressSuggestions, ...providerSuggestions])].slice(0, 8);
-  }, [localAddressSuggestions, providerSuggestions]);
-
-  const addToast = useCallback((text: string) => {
-    const id = crypto.randomUUID();
-    setToasts((prev) => [...prev, { id, text }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 3500);
-  }, []);
-
-  const requestAIText = useCallback(async (request: {
-    conversationId: string;
-    messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
-    maxTokens?: number;
-    temperature?: number;
-    feature?: AIChatFeature;
-    providerOverride?: AIProvider;
-    modelOverride?: string;
-  }) => {
-    const start = await window.lumen.ai.startChat(request);
-
-    return new Promise<string>((resolve, reject) => {
-      pendingAIMap.current.set(start.requestId, { text: "", resolve, reject });
+  const chores = useMemo(() => sortChores(planner.chores), [planner.chores]);
+  const choresByStatus = useMemo(() => {
+    return statusOrder.reduce<Record<ChoreStatus, ChoreItem[]>>((accumulator, status) => {
+      accumulator[status] = chores.filter((chore) => chore.status === status);
+      return accumulator;
+    }, {
+      capturar: [],
+      planejado: [],
+      fazendo: [],
+      feito: []
     });
-  }, []);
+  }, [chores]);
 
-  const extractPageContext = useCallback(async () => {
-    const webview = webviewRef.current;
-    if (!webview || !activeTab || activeTab.suspended) {
-      return null;
-    }
+  const upcomingChores = useMemo(() => {
+    const todayIndex = getTodayWeekIndex();
+    return [...chores].sort((left, right) => {
+      const leftDelta = (left.day - todayIndex + 7) % 7;
+      const rightDelta = (right.day - todayIndex + 7) % 7;
+      if (leftDelta !== rightDelta) {
+        return leftDelta - rightDelta;
+      }
+      return timeToMinutes(left.startTime) - timeToMinutes(right.startTime);
+    }).slice(0, 5);
+  }, [chores]);
 
-    try {
-      const payload = await webview.executeJavaScript(`(() => {
-        const title = document.title || "";
-        const url = location.href;
-        const selection = window.getSelection ? String(window.getSelection()) : "";
-        const text = (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 12000);
-        return { title, url, selection, text };
-      })()`);
+  const completionRate = useMemo(() => {
+    if (!chores.length) {
+      return 0;
+    }
+    return Math.round((choresByStatus.feito.length / chores.length) * 100);
+  }, [chores.length, choresByStatus.feito.length]);
 
-      return payload as { title: string; url: string; selection: string; text: string };
-    } catch {
-      return null;
-    }
-  }, [activeTab]);
+  const todaysChores = useMemo(() => chores.filter((chore) => chore.day === getTodayWeekIndex()), [chores]);
+  const reminderCount = useMemo(() => chores.filter((chore) => chore.whatsappReminder).length, [chores]);
 
-  const runPageIntelligence = useCallback(async () => {
-    if (pageIntelLoading) {
-      return;
-    }
-    if (!activeTab) {
-      return;
-    }
-    if (activeTab.kind !== "web") {
-      addToast("Page intelligence is available only on webpage tabs.");
+  function patchPlanner(update: Partial<PlannerState>): void {
+    setPlanner((current) => ({ ...current, ...update }));
+  }
+
+  function resetComposer(): void {
+    setEditingId(null);
+    setFormState(createDefaultForm());
+  }
+
+  function openComposerForNew(): void {
+    resetComposer();
+    setComposerOpen(true);
+  }
+
+  function openComposerForEdit(chore: ChoreItem): void {
+    setEditingId(chore.id);
+    setFormState(toFormState(chore));
+    setComposerOpen(true);
+  }
+
+  function saveChore(): void {
+    const title = formState.title.trim();
+    if (!title) {
       return;
     }
 
-    setPageIntelLoading(true);
-    setDismissedPageIntel((prev) => {
-      if (!activeTab) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[activeTab.id];
-      return next;
-    });
-    addToast("Analyzing page...");
-
-    const context = await extractPageContext();
-    if (!context) {
-      addToast("Unable to read the current page.");
-      setPageIntelLoading(false);
-      return;
-    }
-
-    const wordCount = context.text.split(/\s+/).filter(Boolean).length;
-    const readingTimeMin = Math.max(1, Math.round(wordCount / 220));
-    const topics = deriveTopics(context.text);
-    const localSummary = context.text.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ").slice(0, 320) || "No summary available.";
-
-    const cacheKey = `${simpleHash(context.url)}:${simpleHash(context.text.slice(0, 2000))}`;
-
-    try {
-      const rawCache = window.localStorage.getItem(SUMMARY_CACHE_KEY);
-      const parsed = rawCache ? (JSON.parse(rawCache) as Record<string, PageIntel>) : {};
-
-        const cached = parsed[cacheKey];
-        if (cached) {
-          setPageIntel((prev) => ({ ...prev, [activeTab.id]: cached }));
-        addToast("Loaded cached summary.");
-        setPageIntelLoading(false);
-        return;
-      }
-
-      const config = await window.lumen.ai.getConfig();
-      if (!config.hasApiKey) {
-        const intel = { summary: localSummary, readingTimeMin, topics };
-        setPageIntel((prev) => ({ ...prev, [activeTab.id]: intel }));
-        addToast("Local summary ready (AI key not configured).");
-        setPageIntelLoading(false);
-        return;
-      }
-
-      const summary = await requestAIText({
-        conversationId: `summary-${activeTab.id}`,
-        feature: "summary",
-        maxTokens: 360,
-        temperature: 0.2,
-        messages: [
-          {
-            role: "user",
-            content: `Summarize this page in under 120 words. Return plain text only.\n\nTitle: ${context.title}\nURL: ${context.url}\n\n${context.text}`
-          }
-        ]
-      });
-
-      const intel = { summary, readingTimeMin, topics };
-      setPageIntel((prev) => ({ ...prev, [activeTab.id]: intel }));
-      window.localStorage.setItem(SUMMARY_CACHE_KEY, JSON.stringify({ ...parsed, [cacheKey]: intel }));
-      addToast("Page intelligence ready.");
-    } catch (error) {
-      setPageIntel((prev) => ({
-        ...prev,
-        [activeTab.id]: {
-          summary: localSummary,
-          readingTimeMin,
-          topics
-        }
-      }));
-      addToast(error instanceof Error ? `AI summary failed, local summary used: ${error.message}` : "AI summary failed, local summary used.");
-    } finally {
-      setPageIntelLoading(false);
-    }
-  }, [activeTab, addToast, extractPageContext, requestAIText, pageIntelLoading]);
-
-  useEffect(() => {
-    if (activeTab) {
-      if (activeTab.kind === "ai" || activeTab.kind === "welcome" || activeTab.kind === "newtab") {
-        setUrlValue("");
-      } else {
-        setUrlValue(activeTab.url);
-      }
-    }
-  }, [activeTab?.id, activeTab?.url, activeTab?.kind]);
-
-  useEffect(() => {
-    if (!activeTab || activeTab.kind !== "web" || activeTab.suspended) {
-      setCanGoBack(false);
-      setCanGoForward(false);
-    }
-  }, [activeTab?.id, activeTab?.kind, activeTab?.suspended]);
-
-  useEffect(() => {
-    const query = urlValue.trim();
-    if (!urlFocused || query.length < 2 || query.startsWith("@") || query.startsWith(">") || query.toLowerCase().startsWith("ask:")) {
-      setProviderSuggestions([]);
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void window.lumen.browser.getAddressSuggestions(query).then((items) => {
-        setProviderSuggestions(items);
-      }).catch(() => {
-        setProviderSuggestions([]);
-      });
-    }, 160);
-
-    return () => window.clearTimeout(timer);
-  }, [urlValue, urlFocused]);
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
-
-  useEffect(() => {
-    const global: GlobalSettings = {
-      theme,
-      sidebarPinned,
-      suspensionEnabled,
-      sidebarWidth,
-      profiles,
-      activeProfileId
-    };
-    window.localStorage.setItem(GLOBAL_STORAGE_KEY, JSON.stringify(global));
-  }, [theme, sidebarPinned, suspensionEnabled, sidebarWidth, profiles, activeProfileId]);
-
-  useEffect(() => {
-    const session: ProfileSession = {
-      tabs,
-      spaces,
-      folders,
-      favorites,
-      activeTabId,
-      urlHistory
-    };
-    window.localStorage.setItem(profileSessionKey(activeProfileId), JSON.stringify(session));
-  }, [tabs, spaces, folders, favorites, activeTabId, urlHistory, activeProfileId]);
-
-  useEffect(() => {
-    setTabVisitHistory((prev) => {
-      const next: Record<string, string[]> = {};
-      tabs.forEach((tab) => {
-        if (tab.kind !== "web") {
-          return;
-        }
-        const existing = prev[tab.id];
-        if (existing?.length) {
-          next[tab.id] = existing;
-          return;
-        }
-        if (tab.url) {
-          next[tab.id] = [tab.url];
-        }
-      });
-      return next;
-    });
-  }, [tabs]);
-
-  useEffect(() => {
-    void window.lumen.extensions.activateProfile(activeProfileId);
-  }, [activeProfileId]);
-
-  useEffect(() => {
-    return window.lumen.ai.onStream((payload) => {
-      const aiRequest = aiTabRequestMap.current.get(payload.requestId);
-      if (aiRequest) {
-        if (payload.token) {
-          setTabs((prev) =>
-            prev.map((tab) =>
-              tab.id === aiRequest.tabId
-                ? {
-                  ...tab,
-                  aiResponse: `${tab.aiResponse ?? ""}${payload.token}`,
-                  aiMessages: (tab.aiMessages ?? []).map((message, index) =>
-                    index === aiRequest.messageIndex
-                      ? { ...message, content: `${message.content}${payload.token}` }
-                      : message
-                  ),
-                  aiLoading: true
-                }
-                : tab
-            )
-          );
-        }
-
-        if (payload.done) {
-          setTabs((prev) =>
-            prev.map((tab) =>
-              tab.id === aiRequest.tabId
-                ? {
-                  ...tab,
-                  aiLoading: false,
-                  aiError: payload.error,
-                  aiResponse: payload.error ? (tab.aiResponse || payload.error) : tab.aiResponse,
-                  aiMessages: payload.error
-                    ? (tab.aiMessages ?? []).map((message, index) =>
-                      index === aiRequest.messageIndex && !message.content
-                        ? { ...message, content: payload.error ?? "AI request failed" }
-                        : message
-                    )
-                    : tab.aiMessages
-                }
-                : tab
-            )
-          );
-
-          if (payload.error) {
-            addToast(payload.error);
-          }
-
-          aiTabRequestMap.current.delete(payload.requestId);
-        }
-      }
-
-      const pending = pendingAIMap.current.get(payload.requestId);
-      if (!pending) {
-        return;
-      }
-
-      if (payload.token) {
-        pending.text += payload.token;
-      }
-
-      if (payload.done) {
-        pendingAIMap.current.delete(payload.requestId);
-
-        if (payload.error) {
-          pending.reject(new Error(payload.error));
-        } else {
-          pending.resolve(pending.text.trim());
-        }
-      }
-    });
-  }, [addToast]);
-
-  useEffect(() => {
-    const stopContextListener = window.lumen.ai.onContextAction((payload) => {
-      const selected = payload.text.trim();
-      if (!selected) {
-        return;
-      }
-
-      if (payload.action === "ask") {
-        setAiPanelIntent("chat");
-        setAiOpen(true);
-        setQueuedPrompt({
-          id: crypto.randomUUID(),
-          text: `Use this selected text as context:\n\n${selected}\n\nUser request: explain the key meaning and implications.`,
-          feature: "context_menu"
-        });
-        return;
-      }
-
-      if (payload.action === "summarize") {
-        void (async () => {
-          try {
-            const answer = await requestAIText({
-              conversationId: `ctx-summary-${Date.now()}`,
-              feature: "context_menu",
-              maxTokens: 180,
-              messages: [{ role: "user", content: `Summarize this text in 2-3 sentences:\n\n${selected}` }]
-            });
-            addToast(answer.slice(0, 180));
-          } catch (error) {
-            addToast(error instanceof Error ? error.message : "AI request failed");
-          }
-        })();
-        return;
-      }
-
-      if (payload.action === "eli5") {
-        setAiPanelIntent("chat");
-        setAiOpen(true);
-        setQueuedPrompt({
-          id: crypto.randomUUID(),
-          text: `Explain this simply (ELI5):\n\n${selected}`,
-          feature: "context_menu"
-        });
-        return;
-      }
-
-      if (payload.action.startsWith("translate:")) {
-        const language = payload.action.split(":")[1] ?? "English";
-        setAiPanelIntent("chat");
-        setAiOpen(true);
-        setQueuedPrompt({
-          id: crypto.randomUUID(),
-          text: `Translate this text to ${language}:\n\n${selected}`,
-          feature: "context_menu"
-        });
-        return;
-      }
-
-      if (payload.action === "rewrite") {
-        setAiPanelIntent("chat");
-        setAiOpen(true);
-        setQueuedPrompt({
-          id: crypto.randomUUID(),
-          text: `Rewrite this text to be clearer and more concise:\n\n${selected}`,
-          feature: "context_menu"
-        });
-        return;
-      }
-
-      if (payload.action === "search_selection") {
-        void runAddressAIQuery({
-          text: `Search this selected term with AI and provide a concise answer with key points:\n\n${selected}`,
-          label: "AI (selection)"
-        });
-      }
-    });
-
-    const stopNewTabListener = window.lumen.browser.onNewTabRequested(({ url }) => {
-      if (!url) {
-        return;
-      }
-      handleNewTab(undefined, url, "New tab");
-    });
-
-    return () => {
-      stopContextListener();
-      stopNewTabListener();
-    };
-  }, [requestAIText, addToast, runAddressAIQuery]);
-
-  useEffect(() => {
-    const metricsInterval = window.setInterval(() => {
-      void window.lumen.system.metrics().then((metrics) => {
-        setMemoryPressureRatio(metrics.system.memoryPressureRatio);
-      });
-    }, 10_000);
-
-    return () => window.clearInterval(metricsInterval);
-  }, []);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      if (!suspensionEnabled) {
-        return;
-      }
-
-      const now = Date.now();
-      setTabs((prev) =>
-        prev.map((tab) => {
-          if (tab.id === activeTabId || tab.pinned || tab.suspended) {
-            return tab;
-          }
-
-          if (now - tab.lastActiveAt > SUSPEND_AFTER_MS || memoryPressureRatio > 0.7) {
-            return { ...tab, suspended: true };
-          }
-
-          return tab;
-        })
-      );
-    }, 30_000);
-
-    return () => window.clearInterval(interval);
-  }, [activeTabId, suspensionEnabled, memoryPressureRatio]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.altKey && event.key === "ArrowLeft") {
-        const webview = webviewRef.current;
-        if (!webview) {
-          return;
-        }
-        event.preventDefault();
-        if (webview.canGoBack()) {
-          webview.goBack();
-        }
-        return;
-      }
-
-      if (event.altKey && event.key === "ArrowRight") {
-        const webview = webviewRef.current;
-        if (!webview) {
-          return;
-        }
-        event.preventDefault();
-        if (webview.canGoForward()) {
-          webview.goForward();
-        }
-        return;
-      }
-
-      if (!event.ctrlKey && event.key !== "F5") {
-        return;
-      }
-
-      if (event.key === "F5" || event.key.toLowerCase() === "r") {
-        const webview = webviewRef.current;
-        if (!webview) {
-          return;
-        }
-        event.preventDefault();
-        webview.reload();
-        return;
-      }
-
-      if (!event.ctrlKey) {
-        return;
-      }
-
-      const lower = event.key.toLowerCase();
-
-      if (lower === "t" && event.shiftKey) {
-        event.preventDefault();
-        setTaskManagerOpen((current) => !current);
-        return;
-      }
-
-      if (lower === "t") {
-        event.preventDefault();
-        handleNewTab();
-        return;
-      }
-
-      if (lower === "w") {
-        event.preventDefault();
-        handleCloseTab(activeTabId);
-        return;
-      }
-
-      if (lower === "l") {
-        event.preventDefault();
-        const input = document.getElementById("lumen-url-input") as HTMLInputElement | null;
-        input?.focus();
-        input?.select();
-        return;
-      }
-
-      if (lower === "k") {
-        event.preventDefault();
-        setPaletteOpen((current) => !current);
-        return;
-      }
-
-      if (lower === "b") {
-        event.preventDefault();
-        setSidebarPinned((current) => !current);
-        return;
-      }
-
-      if (lower === "/") {
-        event.preventDefault();
-        setTheme((current) => (current === "light" ? "dark" : "light"));
-        return;
-      }
-
-      if (lower === "s" && event.shiftKey) {
-        event.preventDefault();
-        setSuspensionEnabled((current) => !current);
-        return;
-      }
-
-      if (lower === "a" && event.shiftKey) {
-        event.preventDefault();
-        setAiOpen((current) => !current);
-        return;
-      }
-
-      if (lower === "g" && event.shiftKey) {
-        event.preventDefault();
-        void handleAutoGroupTabs();
-        return;
-      }
-
-      if (lower === "d") {
-        event.preventDefault();
-        if (activeTab && activeTab.kind === "web") {
-          const targetUrl = canonicalUrl(activeTab.url);
-          setFavorites((prev) => {
-            const exists = prev.some((favorite) => canonicalUrl(favorite.url) === targetUrl);
-            if (exists) {
-              addToast("Removed from favorites.");
-              return prev.filter((favorite) => canonicalUrl(favorite.url) !== targetUrl);
-            }
-            addToast("Added to favorites.");
-            return [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                title: activeTab.title && activeTab.title !== "Loading..." ? activeTab.title : targetUrl,
-                url: activeTab.url,
-                createdAt: Date.now()
-              }
-            ];
-          });
-        }
-        return;
-      }
-
-      if (event.key === "Tab") {
-        event.preventDefault();
-        const nextId = rotateTabs(tabs, activeTabId, event.shiftKey ? -1 : 1);
-        setActiveTabId(nextId);
-      }
+    const normalized: ChoreItem = {
+      id: editingId ?? uid(),
+      title,
+      category: formState.category,
+      status: formState.status,
+      priority: formState.priority,
+      assignee: formState.assignee.trim() || "Eu",
+      day: formState.day,
+      startTime: formState.startTime,
+      endTime: ensureEndAfterStart(formState.startTime, formState.endTime),
+      room: formState.room.trim() || "Casa",
+      notes: formState.notes.trim(),
+      whatsappReminder: formState.whatsappReminder,
+      reminderLeadMinutes: formState.reminderLeadMinutes,
+      createdAt: editingId
+        ? planner.chores.find((entry) => entry.id === editingId)?.createdAt ?? Date.now()
+        : Date.now()
     };
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeTabId, tabs]);
-
-  const updateTab = (id: string, updater: (tab: BrowserTab) => BrowserTab) => {
-    setTabs((prev) => prev.map((tab) => (tab.id === id ? updater(tab) : tab)));
-  };
-
-  const handleSelectTab = (id: string) => {
-    setActiveTabId(id);
-    updateTab(id, (tab) => ({ ...tab, suspended: false, lastActiveAt: Date.now() }));
-  };
-
-  const handleSwitchProfile = (profileId: string) => {
-    if (profileId === activeProfileId) {
-      return;
+    if (editingId) {
+      patchPlanner({
+        chores: planner.chores.map((item) => item.id === editingId ? normalized : item)
+      });
+    } else {
+      patchPlanner({
+        chores: [...planner.chores, normalized]
+      });
     }
 
-    const currentSession: ProfileSession = { tabs, spaces, folders, favorites, activeTabId, urlHistory };
-    window.localStorage.setItem(profileSessionKey(activeProfileId), JSON.stringify(currentSession));
-
-    const nextSession = readProfileSession(profileId);
-    setActiveProfileId(profileId);
-    setTabs(nextSession.tabs);
-    setSpaces(nextSession.spaces);
-    setFolders(nextSession.folders);
-    setFavorites(nextSession.favorites);
-    setActiveTabId(nextSession.activeTabId);
-    setUrlHistory(nextSession.urlHistory);
-    setTabVisitHistory(buildInitialTabVisitHistory(nextSession.tabs));
-    setUrlFocused(false);
-    setProviderSuggestions([]);
-    setCanGoBack(false);
-    setCanGoForward(false);
-    setDismissedPageIntel({});
-  };
-
-  const handleAddProfile = (name?: string) => {
-    const nextIndex = profiles.length + 1;
-    const profile = createProfile(name?.trim() || `Profile ${nextIndex}`);
-    setProfiles((prev) => [...prev, profile]);
-    const session = defaultSession();
-    window.localStorage.setItem(profileSessionKey(profile.id), JSON.stringify(session));
-    handleSwitchProfile(profile.id);
-  };
-
-  function handleNewTab(spaceId?: string, url?: string, title?: string) {
-    const fallbackSpace = spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
-    const tab = url ? createTab(spaceId ?? fallbackSpace, normalizeAddress(url), title ?? "Loading...") : createNewTab(spaceId ?? fallbackSpace);
-    setTabs((prev) => [...prev, tab]);
-    setTabVisitHistory((prev) => ({
-      ...prev,
-      [tab.id]: tab.kind === "web" && tab.url ? [tab.url] : []
-    }));
-    setActiveTabId(tab.id);
+    resetComposer();
   }
 
-  function handleCloseTab(id: string) {
-    setTabs((prev) => {
-      const next = prev.filter((tab) => tab.id !== id);
-      if (next.length === 0) {
-        const fallbackSpace = spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
-        const fallback = createNewTab(fallbackSpace);
-        setActiveTabId(fallback.id);
-        setTabVisitHistory((history) => {
-          const copy = { ...history };
-          delete copy[id];
-          copy[fallback.id] = [];
-          return copy;
+  function deleteChore(choreId: string): void {
+    patchPlanner({
+      chores: planner.chores.filter((item) => item.id !== choreId)
+    });
+    if (editingId === choreId) {
+      resetComposer();
+    }
+  }
+
+  function updateChoreStatus(choreId: string, status: ChoreStatus): void {
+    patchPlanner({
+      chores: planner.chores.map((item) => item.id === choreId ? { ...item, status } : item)
+    });
+  }
+
+  async function shareReminder(chore: ChoreItem): Promise<void> {
+    const shareText = buildShareMessage(chore, planner.spouseName, weekStartDate);
+    const url = buildWhatsAppUrl(chore, planner.spouseName, planner.spousePhone, weekStartDate);
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Lembrete: ${chore.title}`,
+          text: shareText,
+          url
         });
-        return [fallback];
-      }
-
-      if (id === activeTabId) {
-        setActiveTabId(next[Math.max(0, next.length - 1)]?.id ?? activeTabId);
-      }
-
-      return next;
-    });
-    setTabVisitHistory((prev) => {
-      const copy = { ...prev };
-      delete copy[id];
-      return copy;
-    });
-  }
-
-  const handleReorderTab = (sourceId: string, targetId: string) => {
-    setTabs((prev) => {
-      const sourceIndex = prev.findIndex((tab) => tab.id === sourceId);
-      const targetIndex = prev.findIndex((tab) => tab.id === targetId);
-
-      if (sourceIndex === -1 || targetIndex === -1) {
-        return prev;
-      }
-
-      const copy = [...prev];
-      const [moved] = copy.splice(sourceIndex, 1);
-      if (!moved) {
-        return prev;
-      }
-      copy.splice(targetIndex, 0, moved);
-      return copy;
-    });
-  };
-
-  function navigateToAddress(rawInput: string): void {
-    const nextUrl = normalizeAddress(rawInput);
-
-    if (!activeTab) {
-      return;
-    }
-
-    updateTab(activeTab.id, (tab) => {
-      if (tab.kind === "ai" || tab.kind === "welcome" || tab.kind === "newtab") {
-        return {
-          ...tab,
-          kind: "web",
-          url: nextUrl,
-          title: "Loading...",
-          suspended: false,
-          lastActiveAt: Date.now(),
-          aiQuery: undefined,
-          aiProviderLabel: undefined,
-          aiResponse: undefined,
-          aiLoading: undefined,
-          aiError: undefined
-        };
-      }
-
-      return {
-        ...tab,
-        url: nextUrl,
-        title: "Loading...",
-        suspended: false,
-        lastActiveAt: Date.now()
-      };
-    });
-
-    setUrlHistory((prev) => [nextUrl, ...prev].slice(0, 400));
-    setUrlFocused(false);
-    setUrlValue("");
-    setProviderSuggestions([]);
-  }
-
-  function rememberVisitedUrl(tabId: string, url: string): void {
-    setTabVisitHistory((prev) => {
-      const current = prev[tabId] ?? [];
-      const normalized = url.trim();
-      if (!normalized) {
-        return prev;
-      }
-      if (current[current.length - 1] === normalized) {
-        return prev;
-      }
-      const next = [...current.filter((item) => item !== normalized), normalized].slice(-60);
-      return {
-        ...prev,
-        [tabId]: next
-      };
-    });
-    setUrlHistory((prev) => [url, ...prev].slice(0, 400));
-  }
-
-  async function runAddressAIQuery(query: {
-    text: string;
-    providerOverride?: AIProvider;
-    modelOverride?: string;
-    label: string;
-  }): Promise<void> {
-    const fallbackSpace = activeTab?.spaceId ?? spaces[0]?.id ?? createSpace("General", SPACE_COLORS[0]).id;
-    const aiTab = createAITab(fallbackSpace, query.text, query.label);
-
-    setTabs((prev) => [...prev, aiTab]);
-    setActiveTabId(aiTab.id);
-    setUrlFocused(false);
-    setUrlValue("");
-    setProviderSuggestions([]);
-
-    try {
-      const response = await window.lumen.ai.startChat({
-        conversationId: `url-bar-${aiTab.id}`,
-        feature: "url_bar",
-        maxTokens: 900,
-        providerOverride: query.providerOverride,
-        modelOverride: query.modelOverride,
-        messages: [
-          {
-            role: "user",
-            content: `Current page: ${activeTab?.title ?? "Unknown"} (${activeTab?.url ?? "N/A"})\n\n${query.text}`
-          }
-        ]
-      });
-
-      aiTabRequestMap.current.set(response.requestId, {
-        tabId: aiTab.id,
-        messageIndex: 1
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "AI request failed";
-      updateTab(aiTab.id, (tab) => ({
-        ...tab,
-        aiLoading: false,
-        aiError: message,
-        aiResponse: message,
-        aiMessages: (tab.aiMessages ?? []).map((item, index) =>
-          index === 1 ? { ...item, content: message } : item
-        )
-      }));
-    }
-  }
-
-  const handleAcceptAddressSuggestion = (value: string) => {
-    navigateToAddress(value);
-  };
-
-  const moveTabToSpace = (tabId: string, spaceId: string) => {
-    setTabs((prev) =>
-      prev.map((tab) => {
-        if (tab.id !== tabId) {
-          return tab;
-        }
-        const nextFolderId = tab.folderId && folders.some((folder) => folder.id === tab.folderId && folder.spaceId === spaceId)
-          ? tab.folderId
-          : undefined;
-        return { ...tab, spaceId, folderId: nextFolderId };
-      })
-    );
-  };
-
-  const moveTabToFolder = (tabId: string, folderId: string | null) => {
-    setTabs((prev) =>
-      prev.map((tab) => {
-        if (tab.id !== tabId) {
-          return tab;
-        }
-        if (!folderId) {
-          return { ...tab, folderId: undefined };
-        }
-        const folder = folders.find((entry) => entry.id === folderId);
-        if (!folder) {
-          return tab;
-        }
-        return { ...tab, folderId: folder.id, spaceId: folder.spaceId };
-      })
-    );
-  };
-
-  const handleToggleFavorite = useCallback(() => {
-    if (!activeTab || activeTab.kind !== "web") {
-      return;
-    }
-
-    const targetUrl = canonicalUrl(activeTab.url);
-    setFavorites((prev) => {
-      const exists = prev.some((favorite) => canonicalUrl(favorite.url) === targetUrl);
-      if (exists) {
-        addToast("Removed from favorites.");
-        return prev.filter((favorite) => canonicalUrl(favorite.url) !== targetUrl);
-      }
-
-      addToast("Added to favorites.");
-      return [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          title: activeTab.title && activeTab.title !== "Loading..." ? activeTab.title : targetUrl,
-          url: activeTab.url,
-          createdAt: Date.now()
-        }
-      ];
-    });
-  }, [activeTab, addToast]);
-
-  async function handleSendAITabMessage(tabId: string, text: string): Promise<void> {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    const target = tabs.find((tab) => tab.id === tabId);
-    if (!target || target.kind !== "ai") {
-      return;
-    }
-
-    const nextMessages = [
-      ...(target.aiMessages ?? []),
-      { role: "user" as const, content: trimmed },
-      { role: "assistant" as const, content: "" }
-    ];
-    const responseIndex = nextMessages.length - 1;
-
-    updateTab(tabId, (tab) => ({
-      ...tab,
-      aiMessages: nextMessages,
-      aiLoading: true,
-      aiError: undefined,
-      aiResponse: ""
-    }));
-
-    try {
-      const response = await window.lumen.ai.startChat({
-        conversationId: `url-bar-${tabId}`,
-        feature: "chat",
-        maxTokens: 900,
-        messages: nextMessages.map((message) => ({
-          role: message.role,
-          content: message.content
-        }))
-      });
-
-      aiTabRequestMap.current.set(response.requestId, {
-        tabId,
-        messageIndex: responseIndex
-      });
-    } catch (error) {
-      updateTab(tabId, (tab) => ({
-        ...tab,
-        aiLoading: false,
-        aiError: error instanceof Error ? error.message : "AI request failed",
-        aiMessages: (tab.aiMessages ?? []).map((message, index) =>
-          index === responseIndex
-            ? { ...message, content: error instanceof Error ? error.message : "AI request failed" }
-            : message
-        )
-      }));
-    }
-  }
-
-  const handleNavigate = async () => {
-    const raw = urlValue.trim();
-    const aiQuery = parseAddressAI(raw);
-
-    if (aiQuery) {
-      await runAddressAIQuery({
-        text: aiQuery.query,
-        providerOverride: aiQuery.providerOverride,
-        modelOverride: aiQuery.modelOverride,
-        label: aiQuery.label
-      });
-      return;
-    }
-
-    navigateToAddress(raw);
-  };
-
-  async function handleAutoGroupTabs() {
-    const regularTabs = tabs.filter((tab) => !tab.pinned);
-    if (regularTabs.length < 2) {
-      addToast("Need at least 2 unpinned tabs to group.");
-      return;
-    }
-
-    const payload = regularTabs.map((tab) => ({ id: tab.id, title: tab.title, url: tab.url }));
-
-    try {
-      const response = await requestAIText({
-        conversationId: `group-${Date.now()}`,
-        feature: "tab_intelligence",
-        maxTokens: 500,
-        temperature: 0.1,
-        messages: [
-          {
-            role: "user",
-            content:
-              "Group these tabs by topic. Return strict JSON only: {\"groups\":[{\"name\":\"...\",\"tabIds\":[\"id1\",\"id2\"]}]}\n\n" +
-              JSON.stringify(payload)
-          }
-        ]
-      });
-
-      const jsonStart = response.indexOf("{");
-      const jsonEnd = response.lastIndexOf("}");
-      if (jsonStart === -1 || jsonEnd === -1) {
-        throw new Error("AI did not return valid grouping JSON.");
-      }
-
-      const parsed = JSON.parse(response.slice(jsonStart, jsonEnd + 1)) as {
-        groups?: Array<{ name?: string; tabIds?: string[] }>;
-      };
-
-      const groups = parsed.groups?.filter((group) => group.tabIds && group.tabIds.length > 0) ?? [];
-      if (!groups.length) {
-        throw new Error("No groups returned.");
-      }
-
-      const nextSpaces = groups.map((group, idx) =>
-        createSpace(group.name?.slice(0, 24) || `Group ${idx + 1}`, SPACE_COLORS[idx % SPACE_COLORS.length])
-      );
-
-      const map = new Map<string, string>();
-      groups.forEach((group, idx) => {
-        const nextSpace = nextSpaces[idx];
-        if (!nextSpace) {
-          return;
-        }
-        group.tabIds?.forEach((tabId) => {
-          map.set(tabId, nextSpace.id);
-        });
-      });
-
-      setSpaces((prev) => [...prev, ...nextSpaces]);
-      setTabs((prev) =>
-        prev.map((tab) => {
-          const nextSpaceId = map.get(tab.id);
-          return nextSpaceId ? { ...tab, spaceId: nextSpaceId } : tab;
-        })
-      );
-
-      addToast("Applied AI tab grouping.");
-    } catch (error) {
-      addToast(error instanceof Error ? error.message : "Tab grouping failed.");
-    }
-  }
-
-  const handleSuggestStaleTabs = async () => {
-    const now = Date.now();
-    const stale = tabs.filter((tab) => !tab.pinned && now - tab.lastActiveAt > STALE_AFTER_MS);
-
-    if (!stale.length) {
-      addToast("No stale tabs found.");
-      return;
-    }
-
-    try {
-      const response = await requestAIText({
-        conversationId: `stale-${Date.now()}`,
-        feature: "tab_intelligence",
-        maxTokens: 220,
-        temperature: 0,
-        messages: [
-          {
-            role: "user",
-            content:
-              "Pick up to 5 tabs that can likely be closed. Return strict JSON only: {\"tabIds\":[...],\"reason\":\"...\"}.\n\n" +
-              JSON.stringify(stale.map((tab) => ({ id: tab.id, title: tab.title, url: tab.url })))
-          }
-        ]
-      });
-
-      const jsonStart = response.indexOf("{");
-      const jsonEnd = response.lastIndexOf("}");
-      const parsed = JSON.parse(response.slice(jsonStart, jsonEnd + 1)) as {
-        tabIds?: string[];
-        reason?: string;
-      };
-
-      if (!parsed.tabIds?.length) {
-        addToast("AI found no close suggestions.");
         return;
+      } catch {
+        // Fall back to WhatsApp URL.
       }
-
-      const suggestTitles = tabs
-        .filter((tab) => parsed.tabIds?.includes(tab.id))
-        .map((tab) => tab.title)
-        .slice(0, 3)
-        .join(", ");
-
-      addToast(`Suggested stale tabs: ${suggestTitles || "(check tab list)"}`);
-    } catch (error) {
-      addToast(error instanceof Error ? error.message : "Failed to suggest stale tabs.");
-    }
-  };
-
-  const handleAISearchTabs = useCallback(async (query: string) => {
-    const cleaned = query.trim();
-    if (!cleaned) {
-      return [];
     }
 
-    try {
-      const response = await requestAIText({
-        conversationId: `tab-search-${Date.now()}`,
-        feature: "tab_search",
-        maxTokens: 180,
-        temperature: 0,
-        messages: [
-          {
-            role: "user",
-            content:
-              "Find the best matching tab IDs for this query. Return strict JSON only: {\"tabIds\":[...]}.\nQuery: " +
-              cleaned +
-              "\nTabs:\n" +
-              JSON.stringify(tabs.map((tab) => ({ id: tab.id, title: tab.title, url: tab.url })))
-          }
-        ]
-      });
-
-      const jsonStart = response.indexOf("{");
-      const jsonEnd = response.lastIndexOf("}");
-      if (jsonStart === -1 || jsonEnd === -1) {
-        return [];
-      }
-      const parsed = JSON.parse(response.slice(jsonStart, jsonEnd + 1)) as { tabIds?: string[] };
-      const ids = new Set(parsed.tabIds ?? []);
-      return tabs.filter((tab) => ids.has(tab.id));
-    } catch {
-      return tabs.filter((tab) =>
-        `${tab.title} ${tab.url}`.toLowerCase().includes(cleaned.toLowerCase())
-      );
-    }
-  }, [requestAIText, tabs]);
-
-  const handleRunCommand = (command: string) => {
-    switch (command) {
-      case "New tab":
-        handleNewTab();
-        break;
-      case "Close tab":
-        handleCloseTab(activeTabId);
-        break;
-      case "Focus address bar": {
-        const input = document.getElementById("lumen-url-input") as HTMLInputElement | null;
-        input?.focus();
-        input?.select();
-        break;
-      }
-      case "Go back":
-        handleGoBack();
-        break;
-      case "Go forward":
-        handleGoForward();
-        break;
-      case "Refresh page":
-        handleRefresh();
-        break;
-      case "Toggle sidebar":
-        setSidebarPinned((current) => !current);
-        break;
-      case "Toggle dark mode":
-        setTheme((current) => (current === "light" ? "dark" : "light"));
-        break;
-      case "Suspend all tabs":
-        setTabs((prev) =>
-          prev.map((tab) => (tab.id === activeTabId ? tab : { ...tab, suspended: true }))
-        );
-        break;
-      case "Open task manager":
-        setTaskManagerOpen(true);
-        break;
-      case "Manage extensions":
-        setExtensionsModalOpen(true);
-        break;
-      case "Password manager":
-        setPasswordsModalOpen(true);
-        break;
-      case "Permission audit":
-        setPermissionAuditOpen(true);
-        break;
-      case "Toggle AI panel":
-        setAiPanelIntent("chat");
-        setAiOpen((current) => !current);
-        break;
-      case "Suggest stale tabs":
-        void handleSuggestStaleTabs();
-        break;
-      case "Group tabs by topic":
-        void handleAutoGroupTabs();
-        break;
-      case "Summarize this page (AI)":
-        void runPageIntelligence();
-        break;
-      case "Toggle favorite":
-        handleToggleFavorite();
-        break;
-      default:
-        break;
-    }
-  };
-
-  const handleSidebarHoverChange = (hovered: boolean) => {
-    if (hoverTimerRef.current) {
-      window.clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-
-    if (hovered) {
-      hoverTimerRef.current = window.setTimeout(() => {
-        setSidebarPeek(true);
-      }, 200);
-      return;
-    }
-
-    setSidebarPeek(false);
-  };
-
-  const sidebarExpanded = sidebarPinned || sidebarPeek;
-  const activeSpaceId = activeTab?.spaceId ?? spaces[0]?.id;
-  const topSites = useMemo(() => deriveTopSites(urlHistory, tabs), [urlHistory, tabs]);
-  const currentIntel = activeTab ? pageIntel[activeTab.id] : undefined;
-  const currentIntelVisible = Boolean(activeTab && currentIntel && !dismissedPageIntel[activeTab.id]);
-  const canRefresh = activeTab?.kind === "web" && !activeTab.suspended;
-  const canFavorite = activeTab?.kind === "web";
-  const isFavorite = Boolean(
-    activeTab?.kind === "web" &&
-    favorites.some((favorite) => canonicalUrl(favorite.url) === canonicalUrl(activeTab.url))
-  );
-  const storeInstallUrl = activeTab?.kind === "web" ? parseChromeWebStoreUrl(activeTab.url) : null;
-  const backHistoryItems = useMemo(() => {
-    if (!activeTab || activeTab.kind !== "web") {
-      return [];
-    }
-    const current = tabVisitHistory[activeTab.id] ?? [];
-    if (!current.length) {
-      return [];
-    }
-    return current.slice(0, -1).reverse();
-  }, [activeTab?.id, activeTab?.kind, tabVisitHistory]);
-
-  const handleGoBack = () => {
-    const webview = webviewRef.current;
-    if (!webview || !canGoBack) {
-      return;
-    }
-    webview.goBack();
-  };
-
-  const handleGoForward = () => {
-    const webview = webviewRef.current;
-    if (!webview || !canGoForward) {
-      return;
-    }
-    webview.goForward();
-  };
-
-  const handleRefresh = () => {
-    const webview = webviewRef.current;
-    if (!webview || !canRefresh) {
-      return;
-    }
-    webview.reload();
-  };
-
-  const handleInstallFromStore = () => {
-    if (!storeInstallUrl) {
-      addToast("Open a Chrome Web Store extension page first.");
-      return;
-    }
-    void window.lumen.extensions.installFromWebStore(activeProfileId, storeInstallUrl).then(() => {
-      setExtensionsModalOpen(true);
-      addToast("Extension install attempted. Check Extensions manager.");
-    }).catch((error) => {
-      addToast(error instanceof Error ? error.message : "Chrome Web Store install failed");
-    });
-  };
-
-  const handleNavigateBackHistory = (url: string) => {
-    if (!activeTab || activeTab.kind !== "web") {
-      return;
-    }
-
-    updateTab(activeTab.id, (tab) => ({
-      ...tab,
-      url,
-      title: "Loading...",
-      suspended: false,
-      lastActiveAt: Date.now()
-    }));
-    setUrlFocused(false);
-    setUrlValue("");
-    setProviderSuggestions([]);
-  };
-
-  useEffect(() => {
-    return window.lumen.window.onShortcut(({ action }) => {
-      switch (action) {
-        case "new_tab":
-          handleNewTab();
-          break;
-        case "close_tab":
-          handleCloseTab(activeTabId);
-          break;
-        case "focus_url": {
-          const input = document.getElementById("lumen-url-input") as HTMLInputElement | null;
-          input?.focus();
-          input?.select();
-          break;
-        }
-        case "toggle_palette":
-          setPaletteOpen((current) => !current);
-          break;
-        case "toggle_sidebar":
-          setSidebarPinned((current) => !current);
-          break;
-        case "toggle_theme":
-          setTheme((current) => (current === "light" ? "dark" : "light"));
-          break;
-        case "toggle_suspend":
-          setSuspensionEnabled((current) => !current);
-          break;
-        case "toggle_ai":
-          setAiOpen((current) => !current);
-          break;
-        case "group_tabs":
-          void handleAutoGroupTabs();
-          break;
-        case "toggle_task_manager":
-          setTaskManagerOpen((current) => !current);
-          break;
-        case "next_tab":
-          setActiveTabId((currentId) => rotateTabs(tabs, currentId, 1));
-          break;
-        case "prev_tab":
-          setActiveTabId((currentId) => rotateTabs(tabs, currentId, -1));
-          break;
-        case "refresh_page":
-          handleRefresh();
-          break;
-        case "toggle_favorite":
-          handleToggleFavorite();
-          break;
-        default:
-          break;
-      }
-    });
-  }, [activeTabId, tabs, handleToggleFavorite]);
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 
   return (
-    <div className="app-root">
-      <TitleBar
-        sidebarPinned={sidebarPinned}
-        activeTabId={activeTab?.id}
-        profiles={profiles}
-        activeProfileId={activeProfileId}
-        onSwitchProfile={handleSwitchProfile}
-        onAddProfile={handleAddProfile}
-        onToggleSidebarPin={() => setSidebarPinned((current) => !current)}
-        onOpenCommandPalette={() => setPaletteOpen(true)}
-        canGoBack={canGoBack}
-        canGoForward={canGoForward}
-        canRefresh={Boolean(canRefresh)}
-        onGoBack={handleGoBack}
-        onGoForward={handleGoForward}
-        onRefresh={handleRefresh}
-        canInstallStoreExtension={Boolean(storeInstallUrl)}
-        canFavorite={Boolean(canFavorite)}
-        isFavorite={isFavorite}
-        backHistoryItems={backHistoryItems}
-        onInstallStoreExtension={handleInstallFromStore}
-        onToggleFavorite={handleToggleFavorite}
-        onNavigateBackHistory={handleNavigateBackHistory}
-        urlValue={urlValue}
-        activeUrl={activeTab?.kind === "web" ? activeTab.url : ""}
-        addressSuggestions={addressSuggestions}
-        urlFocused={urlFocused}
-        onUrlFocusChange={setUrlFocused}
-        onUrlChange={setUrlValue}
-        onUrlAcceptSuggestion={handleAcceptAddressSuggestion}
-        onUrlSubmit={handleNavigate}
-        pageIntelligenceLoading={pageIntelLoading}
-        onRunPageIntelligence={() => void runPageIntelligence()}
-      />
+    <div className="planner-app">
+      <header className="planner-header">
+        <div className="brand-block">
+          <div className="brand-mark">
+            <Home size={18} strokeWidth={2.2} />
+          </div>
+          <div>
+            <p className="eyebrow">planner mobile-first para casa</p>
+            <h1>{planner.householdName}</h1>
+          </div>
+        </div>
 
-      <div className="shell">
-        <Sidebar
-          tabs={tabs}
-          spaces={spaces}
-          folders={folders}
-          activeTabId={activeTabId}
-          expanded={sidebarExpanded}
-          sidebarWidth={sidebarWidth}
-          pinned={sidebarPinned}
-          onHoverChange={handleSidebarHoverChange}
-          onSelectTab={handleSelectTab}
-          onCloseTab={handleCloseTab}
-          onNewTab={handleNewTab}
-          onTogglePinnedTab={(id) => updateTab(id, (tab) => ({ ...tab, pinned: !tab.pinned }))}
-          onReorderTab={handleReorderTab}
-          onMoveTabToSpace={moveTabToSpace}
-          onMoveTabToFolder={moveTabToFolder}
-          onToggleSpaceCollapsed={(spaceId) =>
-            setSpaces((prev) =>
-              prev.map((space) =>
-                space.id === spaceId ? { ...space, collapsed: !space.collapsed } : space
-              )
-            )
-          }
-          onToggleFolderCollapsed={(folderId) =>
-            setFolders((prev) =>
-              prev.map((folder) =>
-                folder.id === folderId ? { ...folder, collapsed: !folder.collapsed } : folder
-              )
-            )
-          }
-          onAddFolder={(spaceId) => {
-            const folderCount = folders.filter((folder) => folder.spaceId === spaceId).length + 1;
-            setFolders((prev) => [...prev, createFolder(spaceId, `Folder ${folderCount}`)]);
-          }}
-          onAddSpace={() => {
-            const name = `Space ${spaces.length + 1}`;
-            const color = SPACE_COLORS[spaces.length % SPACE_COLORS.length];
-            setSpaces((prev) => [...prev, createSpace(name, color)]);
-          }}
-          onToggleSidebarPin={() => setSidebarPinned((current) => !current)}
-          onResizeWidth={(width) => setSidebarWidth(Math.min(420, Math.max(180, width)))}
-          onOpenAI={() => {
-            setAiPanelIntent("chat");
-            setAiOpen(true);
-          }}
-          onOpenSettings={() => {
-            setAiPanelIntent("settings");
-            setAiOpen(true);
-          }}
-        />
+        <div className="header-actions">
+          <button className="ghost-button" onClick={() => setComposerOpen((current) => !current)}>
+            {composerOpen ? <PencilLine size={16} /> : <Plus size={16} />}
+            {composerOpen ? "Esconder painel" : "Nova tarefa"}
+          </button>
+          <button
+            className="icon-toggle"
+            onClick={() => patchPlanner({ theme: planner.theme === "light" ? "dark" : "light" })}
+            aria-label="Alternar tema"
+          >
+            {planner.theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+          </button>
+        </div>
+      </header>
 
-        <main className="content-area">
-          {currentIntelVisible && activeTab && currentIntel && (
-            <section className="page-intel-banner">
-              <div className="page-intel-top">
-                <span>Summary</span>
-                <div className="page-intel-meta">
-                  <span>{currentIntel.readingTimeMin} min read</span>
-                  <button
-                    className="icon-button page-intel-close"
-                    onClick={() => setDismissedPageIntel((prev) => ({ ...prev, [activeTab.id]: true }))}
-                    title="Close summary"
-                  >
-                    <X size={12} strokeWidth={2} />
+      <section className="hero-card">
+        <div className="hero-copy">
+          <span className="hero-badge">
+            <BellRing size={14} />
+            lembretes prontos para WhatsApp
+          </span>
+          <h2>Calendario semanal, quadro tipo Trello e rotina domestica em uma so tela.</h2>
+          <p>
+            Cadastre afazeres com icones bonitinhos, horario, anotacoes, responsavel e um aviso pronto para mandar no WhatsApp para a sua esposa.
+          </p>
+        </div>
+
+        <div className="hero-metrics">
+          <MetricCard label="tarefas ativas" value={String(chores.length)} detail={`${choresByStatus.fazendo.length} em andamento`} />
+          <MetricCard label="lembretes" value={String(reminderCount)} detail="com atalho para WhatsApp" />
+          <MetricCard label="conclusao" value={`${completionRate}%`} detail={`${choresByStatus.feito.length} tarefas concluidas`} />
+        </div>
+      </section>
+
+      <nav className="view-switcher" aria-label="Navegacao principal">
+        {viewConfig.map((view) => {
+          const Icon = view.icon;
+          const active = activeView === view.id;
+          return (
+            <button
+              key={view.id}
+              className={active ? "view-pill active" : "view-pill"}
+              onClick={() => setActiveView(view.id)}
+            >
+              <Icon size={16} />
+              {view.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="planner-layout">
+        <main className="planner-main">
+          {activeView === "resumo" && (
+            <section className="summary-grid">
+              <article className="panel-card spotlight-card">
+                <div className="panel-head">
+                  <div>
+                    <p className="eyebrow">proxima semana util</p>
+                    <h3>Cronograma em destaque</h3>
+                  </div>
+                  <span className="range-pill">{formatWeekRange(weekStartDate)}</span>
+                </div>
+
+                <div className="spotlight-list">
+                  {upcomingChores.map((chore) => (
+                    <ReminderRow
+                      key={chore.id}
+                      chore={chore}
+                      weekStartDate={weekStartDate}
+                      spouseName={planner.spouseName}
+                      spousePhone={planner.spousePhone}
+                      onEdit={() => openComposerForEdit(chore)}
+                      onShare={() => void shareReminder(chore)}
+                    />
+                  ))}
+                </div>
+              </article>
+
+              <article className="panel-card">
+                <div className="panel-head">
+                  <div>
+                    <p className="eyebrow">hoje</p>
+                    <h3>Tarefas do dia</h3>
+                  </div>
+                  <ListTodo size={18} />
+                </div>
+                <div className="list-stack compact-stack">
+                  {todaysChores.length ? todaysChores.map((chore) => (
+                    <CompactChoreItem key={chore.id} chore={chore} onEdit={() => openComposerForEdit(chore)} />
+                  )) : (
+                    <EmptyState text="Nada programado para hoje ainda. Adicione uma tarefa para preencher sua rotina." />
+                  )}
+                </div>
+              </article>
+
+              <article className="panel-card">
+                <div className="panel-head">
+                  <div>
+                    <p className="eyebrow">distribuicao</p>
+                    <h3>Board rapido</h3>
+                  </div>
+                  <KanbanSquare size={18} />
+                </div>
+                <div className="status-summary-grid">
+                  {statusOrder.map((status) => (
+                    <div key={status} className="status-summary-card">
+                      <strong>{statusLabels[status]}</strong>
+                      <span>{choresByStatus[status].length} itens</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <article className="panel-card wide-panel">
+                <div className="panel-head">
+                  <div>
+                    <p className="eyebrow">icones por afazer</p>
+                    <h3>Categorias domesticas</h3>
+                  </div>
+                  <Sparkles size={18} />
+                </div>
+                <div className="category-grid">
+                  {Object.entries(categoryCatalog).map(([id, config]) => {
+                    const Icon = config.icon;
+                    const total = chores.filter((chore) => chore.category === id).length;
+                    return (
+                      <div key={id} className="category-card" style={{ borderColor: `${config.accent}33` }}>
+                        <span className="category-icon" style={{ backgroundColor: `${config.accent}1a`, color: config.accent }}>
+                          <Icon size={18} />
+                        </span>
+                        <div>
+                          <strong>{config.label}</strong>
+                          <small>{total} tarefa(s)</small>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </article>
+            </section>
+          )}
+
+          {activeView === "agenda" && (
+            <section className="panel-card agenda-card">
+              <div className="panel-head agenda-head">
+                <div>
+                  <p className="eyebrow">agenda com dias e horario</p>
+                  <h3>Semana planejada</h3>
+                </div>
+                <div className="week-controls">
+                  <button className="icon-toggle" onClick={() => setWeekOffset((value) => value - 1)} aria-label="Semana anterior">
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="range-pill">{formatWeekRange(weekStartDate)}</span>
+                  <button className="icon-toggle" onClick={() => setWeekOffset((value) => value + 1)} aria-label="Proxima semana">
+                    <ChevronRight size={16} />
                   </button>
                 </div>
               </div>
-              <p>{currentIntel.summary}</p>
-              <div className="topic-tags">
-                {currentIntel.topics.map((topic) => (
-                  <span key={topic} className="topic-tag">{topic}</span>
+
+              <div className="week-strip">
+                {dayNames.map((dayName, index) => (
+                  <div key={dayName} className="day-pill">
+                    <strong>{dayName}</strong>
+                    <span>{formatDateLabel(weekStartDate, index)}</span>
+                  </div>
                 ))}
+              </div>
+
+              <div className="timeline-shell">
+                <div className="timeline-grid">
+                  <div className="time-column">
+                    {HOURS.map((hour) => (
+                      <div key={hour} className="hour-label">{String(hour).padStart(2, "0")}:00</div>
+                    ))}
+                  </div>
+
+                  {dayNames.map((dayName, dayIndex) => (
+                    <div key={dayName} className="day-column">
+                      <div className="day-column-header">{dayName}</div>
+                      <div className="day-track">
+                        {HOURS.map((hour) => (
+                          <div key={hour} className="hour-slot" />
+                        ))}
+                        {chores
+                          .filter((chore) => chore.day === dayIndex)
+                          .map((chore) => {
+                            const category = categoryCatalog[chore.category];
+                            const Icon = category.icon;
+                            const totalWindow = (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * MINUTES_PER_HOUR;
+                            const startOffset = timeToMinutes(chore.startTime) - TIMELINE_START_HOUR * MINUTES_PER_HOUR;
+                            const duration = Math.max(30, timeToMinutes(chore.endTime) - timeToMinutes(chore.startTime));
+                            const top = (startOffset / totalWindow) * 100;
+                            const height = (duration / totalWindow) * 100;
+
+                            return (
+                              <button
+                                key={chore.id}
+                                className="timeline-event"
+                                style={{
+                                  top: `${Math.max(0, top)}%`,
+                                  height: `${Math.max(8, height)}%`,
+                                  borderColor: `${category.accent}66`,
+                                  background: `${category.accent}1a`
+                                }}
+                                onClick={() => openComposerForEdit(chore)}
+                              >
+                                <span className="timeline-event-icon" style={{ color: category.accent }}>
+                                  <Icon size={14} />
+                                </span>
+                                <span className="timeline-event-content">
+                                  <strong>{chore.title}</strong>
+                                  <small>{chore.startTime} - {chore.endTime}</small>
+                                </span>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </section>
           )}
 
-          <WebViewport
-            tab={activeTab}
-            profileId={activeProfileId}
-            favorites={favorites}
-            topSites={topSites}
-            webviewRef={webviewRef}
-            onRestoreTab={() => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, suspended: false }))}
-            onTitleChange={(title) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, title }))}
-            onUrlChange={(url) => {
-              if (!activeTab) {
-                return;
-              }
-              updateTab(activeTab.id, (tab) => ({ ...tab, url }));
-              rememberVisitedUrl(activeTab.id, url);
-            }}
-            onFaviconChange={(favicon) => activeTab && updateTab(activeTab.id, (tab) => ({ ...tab, favicon }))}
-            onNavigationStateChange={({ canGoBack: nextCanGoBack, canGoForward: nextCanGoForward }) => {
-              setCanGoBack(nextCanGoBack);
-              setCanGoForward(nextCanGoForward);
-            }}
-            onSendAIMessage={handleSendAITabMessage}
-            onStartBrowsing={(seedUrl) => {
-              if (!activeTab) {
-                return;
-              }
-              setUrlValue(seedUrl);
-              navigateToAddress(seedUrl);
-            }}
-            onAskAIFromNewTab={(prompt) => {
-              void runAddressAIQuery({
-                text: prompt,
-                label: "AI"
-              });
-            }}
-          />
+          {activeView === "quadro" && (
+            <section className="board-grid">
+              {statusOrder.map((status) => (
+                <div
+                  key={status}
+                  className="board-column"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    if (draggingId) {
+                      updateChoreStatus(draggingId, status);
+                      setDraggingId(null);
+                    }
+                  }}
+                >
+                  <div className="board-column-head">
+                    <div>
+                      <p className="eyebrow">board</p>
+                      <h3>{statusLabels[status]}</h3>
+                    </div>
+                    <span className="count-pill">{choresByStatus[status].length}</span>
+                  </div>
 
-          <footer className="status-bar">
-            <span>{suspensionEnabled ? "Auto-suspend on" : "Auto-suspend off"}</span>
-            <span>{memoryPressureRatio >= 0.7 ? "High memory pressure" : "Memory stable"}</span>
-            <span>Active space: {spaces.find((space) => space.id === activeSpaceId)?.name ?? "General"}</span>
-            <span>Security hardened</span>
-            <span>{theme === "light" ? "Light" : "Dark"} theme</span>
-          </footer>
+                  <div className="board-column-body">
+                    {choresByStatus[status].length ? choresByStatus[status].map((chore) => (
+                      <article
+                        key={chore.id}
+                        className="chore-card"
+                        draggable
+                        onDragStart={() => setDraggingId(chore.id)}
+                        onDragEnd={() => setDraggingId(null)}
+                      >
+                        <ChoreCardHeader chore={chore} />
+                        <p className="card-note">{chore.notes || "Sem anotacoes extras."}</p>
+                        <div className="card-meta-grid">
+                          <span><AlarmClock size={14} /> {dayNames[chore.day]}, {chore.startTime}</span>
+                          <span><CheckCircle2 size={14} /> {chore.assignee}</span>
+                          <span><Home size={14} /> {chore.room}</span>
+                          <span><BellRing size={14} /> {chore.whatsappReminder ? `WhatsApp ${chore.reminderLeadMinutes} min antes` : "Sem WhatsApp"}</span>
+                        </div>
+                        <div className="card-actions">
+                          <button className="ghost-button small" onClick={() => openComposerForEdit(chore)}>
+                            <PencilLine size={14} />
+                            Editar
+                          </button>
+                          <button className="ghost-button small" onClick={() => void shareReminder(chore)}>
+                            <MessageCircle size={14} />
+                            WhatsApp
+                          </button>
+                          {status !== "feito" && (
+                            <button className="ghost-button small" onClick={() => updateChoreStatus(chore.id, statusOrder[statusOrder.indexOf(status) + 1] ?? status)}>
+                              <ArrowRight size={14} />
+                              Avancar
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    )) : (
+                      <EmptyState text="Solte tarefas aqui ou crie uma nova no painel lateral." compact />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
         </main>
 
-        <AIPanel
-          open={aiOpen}
-          intent={aiPanelIntent}
-          profileId={activeProfileId}
-          activeTab={activeTab}
-          queuedPrompt={queuedPrompt}
-          onQueuedPromptHandled={() => setQueuedPrompt(null)}
-          onClose={() => setAiOpen(false)}
-        />
-      </div>
+        <aside className={composerOpen ? "planner-sidebar open" : "planner-sidebar"}>
+          <section className="panel-card settings-card">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">contato para avisos</p>
+                <h3>WhatsApp da esposa</h3>
+              </div>
+              <MessageCircle size={18} />
+            </div>
 
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        tabs={tabs}
-        onSelectTab={handleSelectTab}
-        onRunCommand={handleRunCommand}
-        onAISearchTabs={handleAISearchTabs}
-      />
+            <div className="form-grid compact-form">
+              <label>
+                Nome carinhoso
+                <input
+                  value={planner.spouseName}
+                  onChange={(event) => patchPlanner({ spouseName: event.target.value })}
+                  placeholder="Ex.: Amor"
+                />
+              </label>
+              <label>
+                Numero de WhatsApp
+                <input
+                  value={planner.spousePhone}
+                  onChange={(event) => patchPlanner({ spousePhone: event.target.value })}
+                  placeholder="55 11 99999-9999"
+                  inputMode="tel"
+                />
+              </label>
+              <label>
+                Nome da casa
+                <input
+                  value={planner.householdName}
+                  onChange={(event) => patchPlanner({ householdName: event.target.value || "Casa Flow" })}
+                  placeholder="Casa Flow"
+                />
+              </label>
+            </div>
+            <p className="helper-copy">
+              O app abre um lembrete pronto no WhatsApp. Para envio automatico de verdade no futuro, o caminho natural e integrar com WhatsApp Business API ou Twilio.
+            </p>
+          </section>
 
-      <TaskManagerModal
-        open={taskManagerOpen}
-        tabs={tabs}
-        onClose={() => setTaskManagerOpen(false)}
-      />
+          <section className="panel-card composer-card">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">cadastro flexivel</p>
+                <h3>{editingId ? "Editar afazer" : "Novo afazer"}</h3>
+              </div>
+              <button className="icon-toggle" onClick={openComposerForNew} aria-label="Limpar formulario">
+                <Plus size={16} />
+              </button>
+            </div>
 
-      <ExtensionsModal
-        open={extensionsModalOpen}
-        profileId={activeProfileId}
-        initialStoreUrl={storeInstallUrl ?? undefined}
-        onClose={() => setExtensionsModalOpen(false)}
-      />
+            <div className="form-grid">
+              <label className="span-2">
+                Titulo
+                <input
+                  value={formState.title}
+                  onChange={(event) => setFormState((current) => ({ ...current, title: event.target.value }))}
+                  placeholder="Ex.: Passar pano na sala"
+                />
+              </label>
 
-      <PasswordManagerModal
-        open={passwordsModalOpen}
-        profileId={activeProfileId}
-        onClose={() => setPasswordsModalOpen(false)}
-      />
+              <label>
+                Categoria
+                <select
+                  value={formState.category}
+                  onChange={(event) => setFormState((current) => ({ ...current, category: event.target.value as CategoryId }))}
+                >
+                  {Object.entries(categoryCatalog).map(([id, config]) => (
+                    <option key={id} value={id}>{config.label}</option>
+                  ))}
+                </select>
+              </label>
 
-      <PermissionAuditModal
-        open={permissionAuditOpen}
-        onClose={() => setPermissionAuditOpen(false)}
-      />
+              <label>
+                Status
+                <select
+                  value={formState.status}
+                  onChange={(event) => setFormState((current) => ({ ...current, status: event.target.value as ChoreStatus }))}
+                >
+                  {statusOrder.map((status) => (
+                    <option key={status} value={status}>{statusLabels[status]}</option>
+                  ))}
+                </select>
+              </label>
 
-      <ProfileGate
-        open={profileGateOpen}
-        profiles={profiles}
-        activeProfileId={activeProfileId}
-        onSelectProfile={handleSwitchProfile}
-        onCreateProfile={handleAddProfile}
-        onContinue={() => setProfileGateOpen(false)}
-      />
+              <label>
+                Prioridade
+                <select
+                  value={formState.priority}
+                  onChange={(event) => setFormState((current) => ({ ...current, priority: event.target.value as Priority }))}
+                >
+                  {Object.keys(priorityLabels).map((priority) => (
+                    <option key={priority} value={priority}>{priorityLabels[priority as Priority]}</option>
+                  ))}
+                </select>
+              </label>
 
-      <div className="toast-stack">
-        {toasts.map((toast) => (
-          <div key={toast.id} className="toast-item">
-            {toast.text}
-          </div>
-        ))}
+              <label>
+                Responsavel
+                <input
+                  value={formState.assignee}
+                  onChange={(event) => setFormState((current) => ({ ...current, assignee: event.target.value }))}
+                  placeholder="Eu, esposa, ambos..."
+                />
+              </label>
+
+              <label>
+                Dia da semana
+                <select
+                  value={formState.day}
+                  onChange={(event) => setFormState((current) => ({ ...current, day: Number(event.target.value) }))}
+                >
+                  {dayNames.map((dayName, index) => (
+                    <option key={dayName} value={index}>{fullDayNames[index]}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Inicio
+                <input
+                  type="time"
+                  value={formState.startTime}
+                  onChange={(event) => setFormState((current) => ({ ...current, startTime: event.target.value }))}
+                />
+              </label>
+
+              <label>
+                Fim
+                <input
+                  type="time"
+                  value={formState.endTime}
+                  onChange={(event) => setFormState((current) => ({ ...current, endTime: event.target.value }))}
+                />
+              </label>
+
+              <label className="span-2">
+                Comodo ou local
+                <input
+                  value={formState.room}
+                  onChange={(event) => setFormState((current) => ({ ...current, room: event.target.value }))}
+                  placeholder="Sala, cozinha, mercado..."
+                />
+              </label>
+
+              <label className="span-2">
+                Anotacoes
+                <textarea
+                  value={formState.notes}
+                  onChange={(event) => setFormState((current) => ({ ...current, notes: event.target.value }))}
+                  placeholder="Detalhes, lista de itens, passos ou preferencias."
+                />
+              </label>
+
+              <label className="toggle-row span-2">
+                <span>
+                  <strong>Lembrete no WhatsApp</strong>
+                  <small>Gera um aviso pronto para enviar para sua esposa.</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={formState.whatsappReminder}
+                  onChange={(event) => setFormState((current) => ({ ...current, whatsappReminder: event.target.checked }))}
+                />
+              </label>
+
+              <label>
+                Avisar com antecedencia
+                <select
+                  value={formState.reminderLeadMinutes}
+                  onChange={(event) => setFormState((current) => ({ ...current, reminderLeadMinutes: Number(event.target.value) }))}
+                >
+                  {[15, 30, 45, 60, 90, 120].map((minutes) => (
+                    <option key={minutes} value={minutes}>{minutes} minutos</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="composer-actions">
+              <button className="primary-button" onClick={saveChore}>
+                <Plus size={16} />
+                {editingId ? "Salvar afazer" : "Criar afazer"}
+              </button>
+              {editingId && (
+                <button className="danger-button" onClick={() => deleteChore(editingId)}>
+                  <Trash2 size={16} />
+                  Excluir
+                </button>
+              )}
+            </div>
+          </section>
+        </aside>
       </div>
     </div>
   );
+}
+
+function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="metric-card">
+      <small>{label}</small>
+      <strong>{value}</strong>
+      <span>{detail}</span>
+    </div>
+  );
+}
+
+function ReminderRow({
+  chore,
+  weekStartDate,
+  spouseName,
+  spousePhone,
+  onEdit,
+  onShare
+}: {
+  chore: ChoreItem;
+  weekStartDate: Date;
+  spouseName: string;
+  spousePhone: string;
+  onEdit: () => void;
+  onShare: () => void;
+}) {
+  const category = categoryCatalog[chore.category];
+  const Icon = category.icon;
+  const whatsAppUrl = buildWhatsAppUrl(chore, spouseName, spousePhone, weekStartDate);
+
+  return (
+    <div className="reminder-row">
+      <div className="reminder-icon" style={{ backgroundColor: `${category.accent}20`, color: category.accent }}>
+        <Icon size={18} />
+      </div>
+      <div className="reminder-body">
+        <div className="reminder-topline">
+          <strong>{chore.title}</strong>
+          <span className="priority-dot" style={{ backgroundColor: priorityTone(chore.priority) }} />
+        </div>
+        <p>
+          {fullDayNames[chore.day]} · {formatDateLabel(weekStartDate, chore.day)} · {chore.startTime} - {chore.endTime}
+        </p>
+        <div className="reminder-tags">
+          <span>{chore.room}</span>
+          <span>{chore.assignee}</span>
+          <span>{statusLabels[chore.status]}</span>
+        </div>
+      </div>
+      <div className="reminder-actions">
+        <button className="ghost-button small" onClick={onEdit}>
+          <PencilLine size={14} />
+          Editar
+        </button>
+        <button className="ghost-button small" onClick={onShare}>
+          <MessageCircle size={14} />
+          Abrir WhatsApp
+        </button>
+        <a className="inline-link" href={whatsAppUrl} target="_blank" rel="noreferrer">Link direto</a>
+      </div>
+    </div>
+  );
+}
+
+function CompactChoreItem({ chore, onEdit }: { chore: ChoreItem; onEdit: () => void }) {
+  const category = categoryCatalog[chore.category];
+  const Icon = category.icon;
+
+  return (
+    <button className="compact-item" onClick={onEdit}>
+      <span className="compact-icon" style={{ backgroundColor: `${category.accent}20`, color: category.accent }}>
+        <Icon size={16} />
+      </span>
+      <span className="compact-text">
+        <strong>{chore.title}</strong>
+        <small>{chore.startTime} - {chore.endTime} · {chore.room}</small>
+      </span>
+      <span className="compact-status">{statusLabels[chore.status]}</span>
+    </button>
+  );
+}
+
+function ChoreCardHeader({ chore }: { chore: ChoreItem }) {
+  const category = categoryCatalog[chore.category];
+  const Icon = category.icon;
+
+  return (
+    <div className="card-header">
+      <div className="card-title-group">
+        <span className="card-icon" style={{ backgroundColor: `${category.accent}18`, color: category.accent }}>
+          <Icon size={16} />
+        </span>
+        <div>
+          <strong>{chore.title}</strong>
+          <small>{category.label}</small>
+        </div>
+      </div>
+      <span className="status-chip">{priorityLabels[chore.priority]}</span>
+    </div>
+  );
+}
+
+function EmptyState({ text, compact = false }: { text: string; compact?: boolean }) {
+  return <div className={compact ? "empty-state compact" : "empty-state"}>{text}</div>;
 }

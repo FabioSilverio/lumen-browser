@@ -1,44 +1,39 @@
 :root {
-  --font-primary: "Soehne", "Inter", "Helvetica Neue", "Segoe UI Variable Text", "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-ui: 12px;
+  --font-primary: "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
   --font-body: 16px;
-  --font-title: 20px;
-  --font-hero: 28px;
+  --shadow-sm: 0 12px 28px rgba(15, 23, 42, 0.06);
 
-  --radius-window: 12px;
-  --radius-button: 8px;
-  --radius-input: 10px;
-  --radius-tab: 8px;
-  --radius-tooltip: 6px;
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.08);
-  --shadow-float: 0 12px 40px rgba(0, 0, 0, 0.12);
-
-  --ease-apple: cubic-bezier(0.25, 0.1, 0.25, 1);
-  --micro: 200ms;
-  --transition: 350ms;
-  --page: 500ms;
-
-  --bg: #fafafa;
+  --bg: #f6f7fb;
   --surface: #ffffff;
-  --sidebar: #f5f5f5;
-  --text: #1d1d1f;
-  --text-secondary: rgba(0, 0, 0, 0.45);
-  --accent: #0a84ff;
-  --border: rgba(0, 0, 0, 0.06);
-  --hover: rgba(0, 0, 0, 0.03);
+  --soft-surface: #f5f7ff;
+  --text: #152033;
+  --text-secondary: #5f6b84;
+  --accent: #6b63ff;
+  --accent-strong: #5148f5;
+  --soft-accent: rgba(107, 99, 255, 0.12);
+  --border: rgba(21, 32, 51, 0.08);
+  --border-strong: rgba(21, 32, 51, 0.14);
+  --priority-low: #2ecc71;
+  --priority-medium: #ffb020;
+  --priority-high: #ff5f57;
+  --danger: #ff5f57;
+  --danger-soft: rgba(255, 95, 87, 0.1);
 }
 
 :root[data-theme="dark"] {
-  --bg: #1a1a1a;
-  --surface: #242424;
-  --sidebar: #1e1e1e;
-  --text: #f5f5f7;
-  --text-secondary: rgba(255, 255, 255, 0.45);
-  --border: rgba(255, 255, 255, 0.06);
-  --hover: rgba(255, 255, 255, 0.04);
+  --bg: #0f1422;
+  --surface: #171d2d;
+  --soft-surface: #20283b;
+  --text: #f7f8ff;
+  --text-secondary: #a8b4d0;
+  --accent: #8a84ff;
+  --accent-strong: #a49dff;
+  --soft-accent: rgba(138, 132, 255, 0.18);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --danger: #ff8f87;
+  --danger-soft: rgba(255, 95, 87, 0.14);
+  --shadow-sm: 0 14px 34px rgba(0, 0, 0, 0.28);
 }
 
 * {
@@ -49,18 +44,26 @@ html,
 body,
 #root {
   margin: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
+  min-height: 100%;
 }
 
 body {
   font-family: var(--font-primary);
   font-size: var(--font-body);
-  font-weight: 400;
-  letter-spacing: 0;
   color: var(--text);
-  background: radial-gradient(1200px 800px at 10% -20%, rgba(10, 132, 255, 0.1), transparent),
-    radial-gradient(900px 600px at 90% 120%, rgba(10, 132, 255, 0.06), transparent),
+  background:
+    radial-gradient(1200px 600px at 0% 0%, rgba(107, 99, 255, 0.12), transparent),
+    radial-gradient(900px 480px at 100% 0%, rgba(61, 224, 179, 0.09), transparent),
     var(--bg);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
 }
