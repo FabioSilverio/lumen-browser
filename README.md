@@ -1,85 +1,52 @@
-# Lumen Browser (Windows MVP)
+# 🏠 Casa Agenda
 
-Lumen is a Windows-first, frameless Chromium browser shell built with Electron + React + TypeScript, with cloud AI provider support (OpenAI, Anthropic, xAI).
+Aplicativo web progressivo (PWA) para gerenciamento de tarefas domésticas, com calendário semanal e vista Kanban estilo Trello.
 
-## Implemented
+## Funcionalidades
 
-- Frameless browser shell with custom draggable title bar and window controls
-- Vertical sidebar with:
-  - hover-to-peek and pinned open behavior
-  - pinned tabs section
-  - Spaces (collapsible tab groups with color dots)
-  - drag/drop tab reorder and move across Spaces
-- Floating URL bar with:
-  - domain simplification when unfocused
-  - standard URL/search routing
-  - AI mode via `>` / `ask:` prefix with streaming inline response
-  - on-demand page intelligence trigger
-- Embedded Chromium browsing (`webview`) with new-tab interception for popup links
-- Command palette (`Ctrl+K`) with:
-  - command execution
-  - local tab search
-  - AI tab search mode via `tab:` prefix
-- Task manager modal (`Ctrl+Shift+T`) with app process metrics + system memory pressure
-- Tab suspension engine:
-  - inactivity-based suspension (5 min)
-  - aggressive suspension under high memory pressure (>70%)
-  - suspension state persisted in local session
-- AI provider subsystem:
-  - OpenAI / Anthropic / xAI model selector
-  - secure API key storage (`safeStorage`, DPAPI-backed on Windows)
-  - streaming chat in side panel
-  - request queue when AI is busy
-  - retries with exponential backoff on 429/5xx
-  - 30s request timeout + cancel path
-  - monthly budget cap + 80% warning
-  - usage dashboard (daily cost + per-feature breakdown)
-- AI context features:
-  - right-click selected text menu in pages: Ask AI, Summarize, Explain simply, Translate, Rewrite
-  - selected-text actions routed into AI panel or quick toasts
-- Page intelligence:
-  - local extraction of current page content
-  - reading time estimate
-  - key topic tags
-  - AI summary with local URL/content-hash cache
+- **📅 Calendário semanal** com grade de horários (00h–23h), vista por dia e semana
+- **📋 Kanban** estilo Trello com colunas: *A Fazer*, *Em Andamento*, *Concluído* — com drag & drop
+- **✨ 11 categorias domésticas** com emoji: Limpeza, Cozinha, Compras, Manutenção, Crianças, Pets, Jardim, Roupa, Finanças, Saúde, Outros
+- **⚡ Prioridades** com código de cores: Baixa, Média, Alta, Urgente
+- **💚 Integração WhatsApp** — gera link `wa.me` com mensagem pronta para enviar lembretes à esposa
+- **🔁 Recorrência** — Diária, Semanal, Mensal
+- **📝 Anotações** por tarefa
+- **💾 Persistência local** via `localStorage` (dados não saem do dispositivo)
+- **📤 Exportar backup** em JSON
+- **📱 100% responsivo** — otimizado para mobile
 
-## Project Structure
-
-- `src/main`: Electron main process, IPC, AI service, secure settings storage
-- `src/renderer`: Browser UI, tab/space system, AI panel, command palette
-- `native/`: CMake + Conan native-core stub for future C++ performance modules
-
-## Install & Run
+## Como rodar
 
 ```bash
 npm install
 npm run dev
 ```
 
-Production build:
+Abra [http://localhost:5173](http://localhost:5173) no navegador.
+
+## Build para produção
 
 ```bash
-npm run typecheck
 npm run build
-npm start
+npm run preview
 ```
 
-## Keyboard Shortcuts
+## Configuração inicial
 
-- `Ctrl+T`: New tab
-- `Ctrl+W`: Close tab
-- `Ctrl+Tab` / `Ctrl+Shift+Tab`: Next/previous tab
-- `Ctrl+L`: Focus URL bar
-- `Ctrl+Shift+A`: Toggle AI panel
-- `Ctrl+B`: Toggle sidebar pin
-- `Ctrl+Shift+T`: Toggle task manager
-- `Ctrl+K`: Command palette
-- `Ctrl+Shift+S`: Toggle suspension engine
-- `Ctrl+Shift+G`: AI auto-group tabs by topic
-- `Ctrl+/`: Toggle light/dark theme
+1. Clique no ícone ⚙️ no canto superior direito
+2. Preencha seu nome e o nome da esposa
+3. Informe o número de WhatsApp com código do país (ex: `5511987654321`)
+4. Salve e pronto!
 
-## Notes
+## Como enviar lembretes no WhatsApp
 
-- AI features stay inactive until an API key is configured.
-- Lumen stores local session state in browser localStorage and AI/provider settings in Electron userData.
-- This is Windows-targeted and tested with the Electron desktop runtime.
+Ao criar ou editar uma tarefa, clique em **"Enviar Lembrete no WhatsApp"**. O app abrirá o WhatsApp com uma mensagem já formatada com todos os detalhes da tarefa. Basta enviar!
+
+## Tecnologias
+
+- React 18 + TypeScript
+- Vite 5
+- Tailwind CSS 3
+- Zustand (state management)
+- date-fns (datas em PT-BR)
+- lucide-react (ícones)
