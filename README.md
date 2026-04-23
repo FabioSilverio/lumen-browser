@@ -1,85 +1,41 @@
-# Lumen Browser (Windows MVP)
+# Casa Flow
 
-Lumen is a Windows-first, frameless Chromium browser shell built with Electron + React + TypeScript, with cloud AI provider support (OpenAI, Anthropic, xAI).
+Aplicação web em **React + TypeScript + Vite**, pensada primeiro para **celular**: calendário semanal com grade de horários, quadro em colunas (estilo Trello) e tarefas domésticas com **ícones por tipo**, **anotações** e **lembretes**.
 
-## Implemented
+## Funcionalidades
 
-- Frameless browser shell with custom draggable title bar and window controls
-- Vertical sidebar with:
-  - hover-to-peek and pinned open behavior
-  - pinned tabs section
-  - Spaces (collapsible tab groups with color dots)
-  - drag/drop tab reorder and move across Spaces
-- Floating URL bar with:
-  - domain simplification when unfocused
-  - standard URL/search routing
-  - AI mode via `>` / `ask:` prefix with streaming inline response
-  - on-demand page intelligence trigger
-- Embedded Chromium browsing (`webview`) with new-tab interception for popup links
-- Command palette (`Ctrl+K`) with:
-  - command execution
-  - local tab search
-  - AI tab search mode via `tab:` prefix
-- Task manager modal (`Ctrl+Shift+T`) with app process metrics + system memory pressure
-- Tab suspension engine:
-  - inactivity-based suspension (5 min)
-  - aggressive suspension under high memory pressure (>70%)
-  - suspension state persisted in local session
-- AI provider subsystem:
-  - OpenAI / Anthropic / xAI model selector
-  - secure API key storage (`safeStorage`, DPAPI-backed on Windows)
-  - streaming chat in side panel
-  - request queue when AI is busy
-  - retries with exponential backoff on 429/5xx
-  - 30s request timeout + cancel path
-  - monthly budget cap + 80% warning
-  - usage dashboard (daily cost + per-feature breakdown)
-- AI context features:
-  - right-click selected text menu in pages: Ask AI, Summarize, Explain simply, Translate, Rewrite
-  - selected-text actions routed into AI panel or quick toasts
-- Page intelligence:
-  - local extraction of current page content
-  - reading time estimate
-  - key topic tags
-  - AI summary with local URL/content-hash cache
+- **Calendário**: semana começando na segunda; blocos proporcionais à duração; toque para editar.
+- **Quadro**: arrastar cartões entre *A fazer*, *Fazendo* e *Feito*.
+- **Lembretes**: data/hora opcional por tarefa + notificação do navegador (pede permissão em Ajustes).
+- **WhatsApp**: em Ajustes cadastre o número (com DDI). Nos cartões e no editor, o botão abre `wa.me` com mensagem pronta para a pessoa enviar (o site não envia sozinho).
 
-## Project Structure
+Os dados ficam no **localStorage** do navegador.
 
-- `src/main`: Electron main process, IPC, AI service, secure settings storage
-- `src/renderer`: Browser UI, tab/space system, AI panel, command palette
-- `native/`: CMake + Conan native-core stub for future C++ performance modules
-
-## Install & Run
+## Como rodar
 
 ```bash
 npm install
 npm run dev
 ```
 
-Production build:
+Build estático:
 
 ```bash
 npm run typecheck
 npm run build
-npm start
 ```
 
-## Keyboard Shortcuts
+A pasta `dist/` pode ser publicada em qualquer hospedagem estática.
 
-- `Ctrl+T`: New tab
-- `Ctrl+W`: Close tab
-- `Ctrl+Tab` / `Ctrl+Shift+Tab`: Next/previous tab
-- `Ctrl+L`: Focus URL bar
-- `Ctrl+Shift+A`: Toggle AI panel
-- `Ctrl+B`: Toggle sidebar pin
-- `Ctrl+Shift+T`: Toggle task manager
-- `Ctrl+K`: Command palette
-- `Ctrl+Shift+S`: Toggle suspension engine
-- `Ctrl+Shift+G`: AI auto-group tabs by topic
-- `Ctrl+/`: Toggle light/dark theme
+## Deploy na Vercel (recomendado)
 
-## Notes
+1. Acesse [vercel.com/new](https://vercel.com/new) e importe o repositório GitHub.
+2. Framework: **Vite** (detecção automática na maioria dos casos).
+3. Build: `npm run build` · Output: `dist` (já definidos em `vercel.json`).
+4. Após o merge na `main`, cada push em `main` gera um novo deploy.
 
-- AI features stay inactive until an API key is configured.
-- Lumen stores local session state in browser localStorage and AI/provider settings in Electron userData.
-- This is Windows-targeted and tested with the Electron desktop runtime.
+Há também o workflow opcional `.github/workflows/vercel-deploy.yml`: ao configurar os secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID` e `VERCEL_PROJECT_ID` no GitHub, o deploy em produção roda em todo push na `main`.
+
+## Licença
+
+MIT

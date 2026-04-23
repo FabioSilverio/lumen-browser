@@ -1,74 +1,25 @@
 {
-  "name": "lumen-browser",
-  "version": "0.1.13",
-  "private": false,
-  "description": "Lumen - minimalist AI-powered Chromium browser shell for Windows",
-  "author": "FabioSilverio",
-  "license": "MIT",
-  "main": "dist/main/main.js",
+  "name": "casa-flow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Calendário semanal e quadro estilo Trello para tarefas domésticas, com lembretes e WhatsApp",
+  "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:main\" \"npm:dev:renderer\" \"npm:dev:electron\"",
-    "dev:main": "tsup src/main/main.ts src/main/preload.ts --format cjs --out-dir dist/main --target node20 --sourcemap --watch --clean --external electron",
-    "dev:renderer": "vite",
-    "dev:electron": "wait-on tcp:5173 file:dist/main/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 node scripts/run-electron.cjs",
-    "build": "npm run build:main && npm run build:renderer",
-    "build:main": "tsup src/main/main.ts src/main/preload.ts --format cjs --out-dir dist/main --target node20 --sourcemap --clean --external electron",
-    "build:renderer": "vite build",
-    "dist:win": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis portable",
-    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "start": "node scripts/run-electron.cjs"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@types/adm-zip": "^0.5.7",
-    "adm-zip": "^0.5.16",
     "lucide-react": "^0.564.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "concurrently": "^9.1.0",
-    "cross-env": "^7.0.3",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
-    "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5",
-    "wait-on": "^8.0.1"
-  },
-  "build": {
-    "appId": "com.fabiosilverio.lumen",
-    "productName": "Lumen",
-    "asar": true,
-    "directories": {
-      "output": "release",
-      "buildResources": "build"
-    },
-    "files": [
-      "dist/**/*",
-      "package.json"
-    ],
-    "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ],
-      "signAndEditExecutable": false,
-      "artifactName": "Lumen-${version}-${arch}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "perMachine": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "artifactName": "Lumen-${version}-${arch}-installer.${ext}"
-    },
-    "portable": {
-      "artifactName": "Lumen-${version}-${arch}-portable.${ext}"
-    }
+    "vite": "^6.0.5"
   }
 }
